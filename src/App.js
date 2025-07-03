@@ -1,848 +1,1609 @@
-# app.py - Backend Flask para o App de Caixa
+/* global __app_id */ // '__initial_auth_token' removido daqui
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, where, setDoc, getDoc } from 'firebase/firestore'; // 'getDocs' removido
 
-# Importa o Flask e outras ferramentas necessárias
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import os
-import uuid # Para gerar IDs de usuário temporários
-from dotenv import load_dotenv # Para carregar variáveis de ambiente
-import requests # Importa a biblioteca requests para fazer chamadas HTTP
-from functools import wraps # Para criar decoradores
-import json # Adicionado para lidar com JSON da variável de ambiente
+// Firebase configuration and initialization
+// Your specific Firebase project configuration is now hardcoded here for local development.
+const firebaseConfig = {
+    apiKey: "AIzaSyDNIJRlw0mJP349owctGbO58VZWGa0LtQs",
+    authDomain: "caixa-1bd0c.firebaseapp.com",
+    projectId: "caixa-1bd0c",
+    storageBucket: "caixa-1bd0c.firebaseastorage.app",
+    messagingSenderId: "651091159828",
+    appId: "1:651091159828:web:1043424c00f4e71bf97001",
+    measurementId: "G-4NJ0F95DVJ"
+};
 
-# Importa o Firebase Admin SDK
-import firebase_admin
-from firebase_admin import credentials, auth, firestore # Adicionado firestore
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+// Removido: const storage = getStorage(app); // Inicializa o Firebase Storage
 
-# Carrega as variáveis de ambiente do arquivo .env
-load_dotenv()
-
-# --- Inicialização do Firebase Admin SDK ---
-# O conteúdo da chave da conta de serviço agora será lido de uma variável de ambiente
-service_account_json_content = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_JSON")
+// Global variables for app ID (from Canvas environment)
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
+// Removido: initialAuthToken não é usado e estava causando erro de compilação.
+// const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 
-# Verifica se o conteúdo da chave de serviço foi definido
-if not service_account_json_content:
-    print("ERRO: Variável de ambiente FIREBASE_SERVICE_ACCOUNT_KEY_JSON não definida.")
-    raise ValueError("FIREBASE_SERVICE_ACCOUNT_KEY_JSON environment variable is not set.")
+// URL base do seu backend Flask (AGORA APONTA PARA O KOYEB)
+const FLASK_BACKEND_URL = 'https://old-owl-williammzin-cd2d4d31.koyeb.app'; // Adicione 'https://' aqui!
+// Main App Component
+const App = () => {
+    const [products, setProducts] = useState([]);
+    const [cart, setCart] = useState([]);
+    const [total, setTotal] = useState(0);
+    const [paymentAmount, setPaymentAmount] = useState('');
+    const [change, setChange] = useState(0);
+    const [difference, setDifference] = useState(0);
+    const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
+    const [sales, setSales] = useState([]);
+    // Atualizado: 'caixa', 'produtos', 'relatorios', 'gerenciar_empresas', 'gerenciar_usuarios'
+    const [activeTab, setActiveTab] = useState('caixa');
+    const [newProductName, setNewProductName] = useState('');
+    const [newProductValue, setNewProductValue] = useState('');
+    const [newProductCost, setNewProductCost] = useState('');
+    const [newProductId, setNewProductId] = useState('');
+    const [editingProduct, setEditingProduct] = useState(null);
+    const [message, setMessage] = useState('');
 
-# Corrige o campo private_key para conter quebras de linha reais
-# Isso é necessário porque o JSON lido de uma variável de ambiente pode ter '\n' escapado como '\\n'
-service_account_dict = json.loads(service_account_json_content)
-if "private_key" in service_account_dict:
-    service_account_dict["private_key"] = service_account_dict["private_key"].replace("\\n", "\n")
+    // Estados para autenticação via Flask backend
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null); // Armazena { username, role, company_name, design }
+    const [loginUsername, setLoginUsername] = useState('');
+    const [loginPassword, setLoginPassword] = useState('');
 
-try:
-    # Carrega as credenciais diretamente do conteúdo JSON da variável de ambiente
-    cred = credentials.Certificate(service_account_dict)
-    firebase_admin.initialize_app(cred)
-    db = firestore.client() # Inicializa o cliente Firestore
-    print("Firebase Admin SDK inicializado com sucesso usando variável de ambiente.")
-except Exception as e:
-    print(f"ERRO ao inicializar Firebase Admin SDK: {e}")
-    print("Verifique se o conteúdo JSON da variável de ambiente está correto e é válido.")
-    raise # Re-lança a exceção para que o aplicativo não inicie com Firebase inválido.
+    // Estados para Gerenciar Empresas (para o admin principal)
+    const [newCompanyUsername, setNewCompanyUsername] = useState('');
+    const [newCompanyPassword, setNewCompanyPassword] = useState('');
+    const [newCompanyName, setNewCompanyName] = useState('');
+    const [newCompanyDesignTheme, setNewCompanyDesignTheme] = useState('default');
+    const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = useState('');
+    const [companies, setCompanies] = useState([]);
 
-# Inicializa o aplicativo Flask
-app = Flask(__name__)
+    // Estados para a funcionalidade Pix
+    const [pixQrCodeData, setPixQrCodeData] = useState(null);
+    const [isLoadingPix, setIsLoadingPix] = useState(false);
 
-# --- Configuração do CORS ---
-# Permite requisições do seu frontend Netlify e do ambiente de desenvolvimento local.
-# Substitua 'https://dainty-mochi-6412f2.netlify.app' pela URL real do seu frontend no Netlify.
-# Se você tiver outras URLs de frontend, adicione-as à lista.
-CORS(app, origins=["http://localhost:5000", "https://dainty-mochi-6412f2.netlify.app"])
+    // Estado para o termo de pesquisa de produtos
+    const [searchTerm, setSearchTerm] = useState('');
 
-# --- Tratador de Erro 404 Personalizado (NOVO) ---
-@app.errorhandler(404)
-def not_found_error(error):
-    return jsonify({"error": "Recurso não encontrado", "message": str(error)}), 404
+    // NOVOS ESTADOS para Gerenciar Usuários da Empresa (para company_admin)
+    const [companyUsers, setCompanyUsers] = useState([]); // Lista de usuários da empresa
+    const [newCompanyUserUsername, setNewCompanyUserUsername] = useState('');
+    const [newCompanyUserPassword, setNewCompanyUserPassword] = useState('');
+    const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
+    const [editingCompanyUser, setEditingCompanyUser] = useState(null);
 
-# --- Banco de dados simples em memória (para demonstração) ---
-# users_db agora armazenará informações de empresas/administradores de empresas
-# Este users_db é usado principalmente para o login e para armazenar configurações
-# que não precisam ser lidas diretamente pelo frontend via Firestore listeners,
-# ou para dados que são mais eficientes de manter em memória para acesso rápido.
-# A fonte da verdade para dados de empresas (para listagem no frontend) será o Firestore.
-users_db = {} # Armazena 'admin' e 'company_admin' (para login rápido)
+    const messageTimeoutRef = useRef(null);
 
-# Define alguns temas de design padrão (para demonstração)
-# Em um cenário real, você poderia carregar isso de um banco de dados
-# ou permitir que o admin configure.
-DEFAULT_THEMES = {
-    "default": {
-        "gradient_from": "from-blue-50",
-        "gradient_to": "to-indigo-100",
-        "primary_button_bg": "bg-blue-600",
-        "primary_button_hover_bg": "hover:bg-blue-700",
-        "secondary_button_bg": "bg-gray-200",
-        "secondary_button_text": "text-gray-700",
-        "secondary_button_hover_bg": "hover:bg-blue-100",
-        "text_color_strong": "text-gray-800",
-        "text_color_medium": "text-gray-700",
-        "border_color": "border-blue-200",
-        "highlight_color": "text-blue-600",
-        "success_color": "bg-green-500",
-        "error_color": "bg-red-500",
-        "font_family": "font-sans", # Tailwind default font-sans
-        "dominant_color": "bg-blue-50" # Cor dominante padrão
-    },
-    "corporate": {
-        "gradient_from": "from-gray-100",
-        "gradient_to": "to-gray-200",
-        "primary_button_bg": "bg-purple-700",
-        "primary_button_hover_bg": "hover:bg-purple-800",
-        "secondary_button_bg": "bg-gray-300",
-        "secondary_button_text": "text-gray-800",
-        "secondary_button_hover_bg": "hover:bg-gray-400",
-        "text_color_strong": "text-gray-900",
-        "text_color_medium": "text-gray-700",
-        "border_color": "border-purple-300",
-        "highlight_color": "text-purple-700",
-        "success_color": "bg-green-600",
-        "error_color": "bg-red-600",
-        "font_family": "font-serif", # Exemplo de fonte diferente
-        "dominant_color": "bg-gray-100" # Cor dominante corporativa
-    },
-    "vibrant": {
-        "gradient_from": "from-pink-100",
-        "gradient_to": "to-yellow-100",
-        "primary_button_bg": "bg-orange-500",
-        "primary_button_hover_bg": "hover:bg-orange-600",
-        "secondary_button_bg": "bg-pink-200",
-        "secondary_button_text": "text-pink-800",
-        "secondary_button_hover_bg": "hover:bg-pink-300",
-        "text_color_strong": "text-pink-900",
-        "text_color_medium": "text-pink-700",
-        "border_color": "border-orange-300",
-        "highlight_color": "text-orange-500",
-        "success_color": "bg-lime-500",
-        "error_color": "bg-rose-500",
-        "font_family": "font-mono", # Exemplo de fonte diferente
-        "dominant_color": "bg-pink-100" # Cor dominante vibrante
-    }
-}
+    // Function to display messages
+    const showMessage = (msg, type = 'success') => {
+        setMessage({ text: msg, type });
+        if (messageTimeoutRef.current) {
+            clearTimeout(messageTimeoutRef.current);
+        }
+        messageTimeoutRef.current = setTimeout(() => {
+            setMessage('');
+        }, 3000);
+    };
 
-# --- Função para carregar empresas do Firestore para users_db ---
-def load_companies_from_firestore():
-    """
-    Carrega todos os documentos de empresa (company_admin) do Firestore para o users_db em memória.
-    Isso garante que o backend tenha uma visão atualizada das empresas registradas.
-    """
-    global users_db # Declara que estamos modificando a variável global
-    # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
-    app_id = os.getenv("APP_ID", "local-app-id")
-    companies_ref = db.collection('artifacts').document(app_id).collection('users')
-    
-    try:
-        docs = companies_ref.stream()
-        for doc in docs:
-            company_data = doc.to_dict()
-            users_db[doc.id] = company_data
-            # Carrega também os sub-usuários para o users_db (para o login)
-            # ATENÇÃO: Esta abordagem de carregar todos os sub-usuários de todas as empresas
-            # para a memória do backend não é escalável para um grande número de empresas/usuários.
-            # Para produção, considere autenticação direta via Firebase Auth ou um cache mais sofisticado.
-            company_users_ref = companies_ref.document(doc.id).collection('company_users')
-            sub_user_docs = company_users_ref.stream()
-            for sub_doc in sub_user_docs:
-                sub_user_data = sub_doc.to_dict()
-                users_db[sub_user_data['username']] = { # Usa o username como chave para o login
-                    "password": sub_user_data['password'], # Armazenado em texto simples para esta demo, mas DEVE ser hashed
-                    "role": sub_user_data['role'],
-                    "company_id": doc.id, # Associa o sub-usuário à empresa
-                    "firebase_uid": sub_user_data['firebase_uid'] # UID do Firebase Auth
+    // Firebase Authentication (agora usa o token personalizado do Flask)
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            if (user && isLoggedIn && currentUser && user.uid === currentUser.username) {
+                console.log("Firebase Auth state changed: User is logged in with UID:", user.uid);
+            } else if (!user && isLoggedIn) {
+                console.warn("Firebase Auth state changed: User logged in via Flask, but Firebase Auth is not.");
+            } else if (user && !isLoggedIn) {
+                console.warn("Firebase Auth state changed: User logged in via Firebase, but not via Flask. (No auto-logout)");
+            }
+        });
+        return () => unsubscribe();
+    }, [isLoggedIn, currentUser]);
+
+    // Firestore Listeners for Products, Sales, and Company Users (dependem do currentUser do Flask)
+    useEffect(() => {
+        if (!isLoggedIn || !currentUser || !currentUser.username) {
+            setProducts([]);
+            setSales([]);
+            setCompanyUsers([]); // Limpa usuários da empresa também
+            return;
+        }
+
+        console.log("Attempting to fetch Firestore data for user:", currentUser.username);
+
+        // Products Listener (para company_admin e gerente)
+        let unsubscribeProducts;
+        if (currentUser.role === 'company_admin' || currentUser.role === 'gerente') {
+            const productsCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/products`);
+            unsubscribeProducts = onSnapshot(productsCollectionRef, (snapshot) => {
+                const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setProducts(productsData);
+                console.log("Produtos carregados com sucesso!");
+            }, (error) => {
+                console.error("Erro ao carregar produtos:", error);
+                showMessage("Erro ao carregar produtos do Firestore. Verifique as permissões.", "error");
+            });
+        } else {
+            setProducts([]); // Limpa se não tiver permissão
+        }
+
+
+        // Sales Listener (para company_admin e gerente)
+        let unsubscribeSales;
+        if (currentUser.role === 'company_admin' || currentUser.role === 'gerente') {
+            const salesCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`);
+            unsubscribeSales = onSnapshot(salesCollectionRef, (snapshot) => {
+                const salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setSales(salesData);
+                console.log("Vendas carregadas com sucesso!");
+            }, (error) => {
+                console.error("Erro ao carregar vendas:", error);
+                showMessage("Erro ao carregar vendas do Firestore. Verifique as permissões.", "error");
+            });
+        } else {
+            setSales([]); // Limpa se não tiver permissão
+        }
+
+
+        // Company Users Listener (APENAS para company_admin)
+        let unsubscribeCompanyUsers;
+        if (currentUser.role === 'company_admin') {
+            const companyUsersCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/company_users`);
+            console.log("Firestore Company Users Listener Path:", companyUsersCollectionRef.path); // NOVO LOG
+            unsubscribeCompanyUsers = onSnapshot(companyUsersCollectionRef, (snapshot) => {
+                const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setCompanyUsers(usersData);
+                console.log("Usuários da empresa carregados com sucesso!", usersData); // NOVO LOG
+            }, (error) => {
+                console.error("Erro ao carregar usuários da empresa:", error);
+                showMessage("Erro ao carregar usuários da empresa do Firestore. Verifique as permissões.", "error");
+            });
+        } else {
+            setCompanyUsers([]); // Limpa se não tiver permissão
+        }
+
+
+        return () => {
+            if (unsubscribeProducts) unsubscribeProducts();
+            if (unsubscribeSales) unsubscribeSales();
+            if (unsubscribeCompanyUsers) unsubscribeCompanyUsers();
+            console.log("Firestore listeners for Products, Sales, and Company Users unsubscribed.");
+        };
+    }, [isLoggedIn, currentUser]); // Removido 'appId' da dependência
+
+    // Listener para carregar a lista de empresas (apenas para admin principal)
+    useEffect(() => {
+        if (!isLoggedIn || !currentUser || currentUser.role !== 'admin') {
+            setCompanies([]);
+            return;
+        }
+
+        const companiesCollectionRef = collection(db, `artifacts/${appId}/users`);
+        const q = query(companiesCollectionRef, where("role", "==", "company_admin"));
+
+        const unsubscribeCompanies = onSnapshot(q, (snapshot) => {
+            const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setCompanies(companiesData);
+            console.log("Empresas carregadas com sucesso!");
+        }, (error) => {
+            console.error("Erro ao carregar empresas:", error);
+            showMessage("Erro ao carregar empresas do Firestore. Verifique as permissões.", "error");
+        });
+
+        return () => {
+            unsubscribeCompanies();
+            console.log("Firestore listener for Companies unsubscribed.");
+        };
+    }, [isLoggedIn, currentUser]); // Removido 'appId' da dependência
+
+
+    // Calculate total whenever cart changes
+    useEffect(() => {
+        const newTotal = cart.reduce((sum, item) => sum + (item.value * item.quantity), 0);
+        setTotal(newTotal);
+    }, [cart]);
+
+    // Calculate change/difference whenever total or payment amount changes
+    useEffect(() => {
+        const paid = parseFloat(paymentAmount) || 0;
+        if (paid >= total) {
+            setChange(paid - total);
+            setDifference(0);
+        } else {
+            setChange(0);
+            setDifference(total - paid);
+        }
+    }, [total, paymentAmount]);
+
+    // Add product to cart
+    const addToCart = (product) => {
+        const existingItem = cart.find(item => item.id === product.id);
+        if (existingItem) {
+            setCart(cart.map(item =>
+                item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+            ));
+        } else {
+            setCart([...cart, { ...product, quantity: 1 }]);
+        }
+        showMessage(`${product.name} adicionado ao carrinho!`);
+    };
+
+    // Remove product from cart
+    const removeFromCart = (productId) => {
+        setCart(cart.filter(item => item.id !== productId));
+        showMessage("Item removido do carrinho.", "info");
+    };
+
+    // Increase quantity in cart
+    const increaseQuantity = (productId) => {
+        setCart(cart.map(item =>
+            item.id === productId ? { ...item, quantity: item.quantity + 1 } : item
+        ));
+    };
+
+    // Decrease quantity in cart
+    const decreaseQuantity = (productId) => {
+        setCart(cart.map(item =>
+            item.id === productId && item.quantity > 1 ? { ...item, quantity: item.quantity - 1 } : item
+        ).filter(item => item.quantity > 0)); // Remove if quantity becomes 0
+    };
+
+    // Finalize sale
+    const finalizeSale = async () => {
+        if (cart.length === 0) {
+            showMessage("O carrinho está vazio!", "error");
+            return;
+        }
+
+        if (paymentMethod === 'Dinheiro') {
+            if (parseFloat(paymentAmount) < total) {
+                showMessage("Valor pago insuficiente!", "error");
+                return;
+            }
+        } else if (paymentMethod === 'Pix') {
+            setIsLoadingPix(true);
+            setPixQrCodeData(null); // Limpa dados Pix anteriores
+            try {
+                // Certifica-se de que currentUser e currentUser.username existem
+                if (!currentUser || !currentUser.username) {
+                    showMessage("Erro: Usuário da empresa não identificado para gerar Pix.", "error");
+                    setIsLoadingPix(false);
+                    return;
                 }
-        print(f"Empresas e sub-usuários carregados do Firestore para users_db: {list(users_db.keys())}")
-    except Exception as e:
-        print(f"ERRO ao carregar empresas do Firestore na inicialização: {e}")
 
-# Cria um usuário admin principal padrão se não existir.
-# Este é o super-administrador que pode criar outras empresas.
-# NOTA: Em um ambiente de produção real, você não criaria usuários padrão assim.
-# Eles seriam provisionados de forma segura.
-# Este admin será sempre adicionado ao users_db em memória.
-if "admin" not in users_db:
-    users_db["will"] = {"password": "j102355W", "role": "admin", "design_theme": "default", "firebase_uid": "admin"}
-    print("Usuário 'will' principal padrão criado (senha: j102355W).")
+                const response = await fetch(`${FLASK_BACKEND_URL}/pix/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        amount: total.toFixed(2),
+                        description: "Pagamento de Venda",
+                        company_username: currentUser.username // Envia o username da empresa logada
+                    }),
+                });
 
-# Carrega as empresas do Firestore após a inicialização do Firebase Admin SDK
-# e após a criação do usuário 'admin' padrão.
-# AQUI ESTÁ A CORREÇÃO: load_companies_from_firestore() é chamado APÓS a inicialização do 'db'
-load_companies_from_firestore()
+                const data = await response.json();
+                console.log("Dados Pix recebidos do backend:", data); // Log para inspecionar os dados
 
-# Adiciona usuários de empresa de exemplo para teste (apenas em memória, para demonstração)
-# Estes são para garantir que haja dados de teste se o Firestore estiver vazio.
-# Eles serão sobrescritos se já existirem no Firestore e forem carregados.
-if "empresa_teste" not in users_db:
-    users_db["empresa_teste"] = {
-        "password": "testpassword",
-        "role": "company_admin",
-        "company_name": "Empresa Teste Ltda.",
-        "design_theme": "corporate",
-        "mercado_pago_access_token": "YOUR_PRODUCTION_MERCADO_PAGO_TOKEN_HERE", # Substitua pelo seu token real
-        "firebase_uid": "empresa_teste" # UID do Firebase para company_admin
-    }
-    print("Usuário 'empresa_teste' padrão criado (senha: testpassword, tema: corporate, token MP: YOUR_PRODUCTION_MERCADO_PAGO_TOKEN_HERE).")
-
-if "empresa_vibrante" not in users_db:
-    users_db["empresa_vibrante"] = {
-        "password": "vibrantpassword",
-        "role": "company_admin",
-        "company_name": "Vibrant Solutions",
-        "design_theme": "vibrant",
-        "mercado_pago_access_token": "YOUR_PRODUCTION_MERCADO_PAGO_TOKEN_HERE", # Substitua pelo seu token real
-        "firebase_uid": "empresa_vibrante" # UID do Firebase para company_admin
-    }
-    print("Usuário 'empresa_vibrante' padrão criado (senha: vibrantpassword, tema: vibrant, token MP: YOUR_PRODUCTION_MERCADO_PAGO_TOKEN_HERE).")
-
-
-print(f"users_db após inicialização global e carregamento do Firestore: {users_db}")
-
-# --- Decorador para verificar o Firebase ID Token e a função do usuário ---
-def verify_firebase_token(required_role=None):
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            auth_header = request.headers.get('Authorization')
-            if not auth_header or not auth_header.startswith('Bearer '):
-                return jsonify({"error": "Token de autenticação ausente ou inválido"}), 401
-
-            id_token = auth_header.split(' ')[1]
-            try:
-                decoded_token = auth.verify_id_token(id_token)
-                request.current_user_uid = decoded_token['uid'] # UID do usuário autenticado no Firebase Auth
-                request.current_user_role = decoded_token.get('role') # Função do usuário (custom claim)
-                request.current_user_company_id = decoded_token.get('company_id') # ID da empresa (custom claim)
-
-                print(f"Token verificado com sucesso. UID: {request.current_user_uid}, Role: {request.current_user_role}, Company ID: {request.current_user_company_id}")
-                
-                # Verifica se a função do usuário é a requerida
-                if required_role and request.current_user_role != required_role:
-                    print(f"Acesso negado para UID {request.current_user_uid}. Função requerida: {required_role}, Função do usuário: {request.current_user_role}")
-                    return jsonify({"error": f"Acesso negado: Requer função '{required_role}'"}), 403
-
-            except Exception as e:
-                print(f"ERRO ao verificar ID Token: {e}")
-                return jsonify({"error": "Token de autenticação inválido ou expirado"}), 401
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
-
-# --- Rotas da API ---
-
-@app.route('/')
-def home():
-    """
-    Rota de teste simples para verificar se o backend está funcionando.
-    """
-    return jsonify({"message": "Backend do App de Caixa está online!"})
-
-@app.route('/register_company', methods=['POST'])
-def register_company():
-    """
-    Rota para registrar uma nova empresa (usuário com role 'company_admin').
-    Cria o usuário no Firebase Authentication e salva os dados da empresa no Firestore.
-    """
-    data = request.get_json()
-    company_username = data.get('username') # Será o ID único da empresa
-    password = data.get('password')
-    company_name = data.get('company_name')
-    design_theme = data.get('design_theme', 'default') # Permite definir o tema ao registrar
-    mercado_pago_access_token = data.get('mercado_pago_access_token')
-
-    if not company_username or not password or not company_name:
-        return jsonify({"error": "Nome de usuário, senha e nome da empresa são obrigatórios"}), 400
-
-    # NOVO: Validação de comprimento da senha
-    if not isinstance(password, str) or len(password) < 6:
-        return jsonify({"error": "A senha deve ser uma string com pelo menos 6 caracteres."}), 400
-
-    if design_theme not in DEFAULT_THEMES:
-        return jsonify({"error": f"Tema de design '{design_theme}' inválido."}), 400
-
-    # Verifica se o usuário já existe no Firebase Auth
-    try:
-        auth.get_user(company_username) # Tenta buscar pelo UID
-        return jsonify({"error": "Nome de usuário (empresa) já existe no Firebase Authentication."}), 409
-    except auth.UserNotFoundError:
-        pass # Usuário não existe, pode prosseguir
-
-    # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
-    app_id = os.getenv("APP_ID", "local-app-id")
-    # Verifica se o documento da empresa já existe no Firestore
-    company_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_username)
-    if company_doc_ref.get().exists:
-        return jsonify({"error": "Nome de usuário (empresa) já existe no Firestore."}), 409
-
-    try:
-        # 1. Cria o usuário no Firebase Authentication
-        # Usamos o company_username como UID para facilitar o mapeamento
-        user_record = auth.create_user(
-            uid=company_username,
-            email=f"{company_username}@example.com", # Email é obrigatório para Firebase Auth
-            password=password,
-            display_name=company_name
-        )
-        print(f"Usuário Firebase Auth '{user_record.uid}' criado com sucesso.")
-
-        # 2. Define custom claims para o usuário company_admin
-        auth.set_custom_user_claims(user_record.uid, {'role': 'company_admin', 'company_id': company_username})
-        print(f"Custom claims definidos para {user_record.uid}: {{'role': 'company_admin', 'company_id': '{company_username}'}}")
-
-        # 3. Salva os dados da empresa no Firestore
-        company_data_for_firestore = {
-            "password": password, # ATENÇÃO: Em produção, a senha não deve ser armazenada assim.
-            "role": "company_admin",
-            "company_name": company_name,
-            # "plan": None, # Removido
-            "design_theme": design_theme,
-            "mercado_pago_access_token": mercado_pago_access_token,
-            "firebase_uid": user_record.uid # Armazena o UID do Firebase para referência
-        }
-        company_doc_ref.set(company_data_for_firestore)
-        print(f"Dados da empresa '{company_username}' salvos no Firestore.")
-
-        # 4. Atualiza o users_db em memória (para uso imediato no login, embora Firestore é a fonte primária)
-        users_db[company_username] = company_data_for_firestore
-
-        print(f"Empresa registrada: {company_name} com nome de usuário: {company_username} (Tema: {design_theme}, Token MP: {mercado_pago_access_token}).")
-        print(f"Estado atual do users_db: {users_db}")
-
-        return jsonify({
-            "message": "Empresa registrada com sucesso",
-            "username": company_username,
-            "company_name": company_name,
-            "role": "company_admin",
-            "design_theme": design_theme,
-            "mercado_pago_access_token": mercado_pago_access_token
-        }), 201
-
-    except Exception as e:
-        print(f"ERRO ao registrar empresa ou criar usuário Firebase: {e}")
-        # Tenta reverter a criação do usuário no Firebase Auth se a gravação no Firestore falhar
-        try:
-            if 'user_record' in locals():
-                auth.delete_user(user_record.uid)
-                print(f"Rollback: Usuário Firebase Auth '{user_record.uid}' deletado devido a erro no registro da empresa.")
-        except Exception as rollback_e:
-                print(f"ERRO no rollback do Firebase Auth: {rollback_e}")
-        return jsonify({"error": f"Erro ao registrar empresa: {e}"}), 500
-
-@app.route('/login', methods=['POST'])
-def login_user():
-    """
-    Rota para login de usuário (admin principal, company_admin, gerente ou caixa).
-    Após o login bem-sucedido, gera um token personalizado do Firebase com custom claims.
-    """
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-
-    if not username or not password:
-        return jsonify({"error": "Nome de usuário e senha são obrigatórios"}), 400
-
-    user_data = None
-    firebase_uid = None
-    role = None
-    company_name = None
-    design_data = None
-    mercado_pago_access_token = None
-    company_id = None # Para sub-usuários
-
-    # 1. Tenta encontrar o usuário no users_db (admin principal ou company_admin)
-    if username in users_db and users_db[username]["password"] == password:
-        user_data = users_db[username]
-        firebase_uid = user_data.get("firebase_uid", username) # Usa o username como UID se não especificado
-        role = user_data["role"]
-        company_name = user_data.get("company_name")
-        design_data = DEFAULT_THEMES.get(user_data.get("design_theme", "default"), DEFAULT_THEMES["default"])
-        if role == "company_admin":
-            mercado_pago_access_token = user_data.get("mercado_pago_access_token")
-            company_id = username # company_admin é sua própria company_id
-    else:
-        # 2. Se não for admin principal ou company_admin, tenta encontrar como sub-usuário no Firestore
-        # ATENÇÃO: Esta busca global por sub-usuários no login é INEFICIENTE e NÃO ESCALÁVEL.
-        # Para um sistema de produção, considere:
-        # a) Fazer o sub-usuário logar diretamente com Firebase Auth (email/senha) e usar custom claims.
-        # b) Incluir o company_id no payload de login do frontend para direcionar a busca.
-        # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
-        app_id = os.getenv("APP_ID", "local-app-id")
-        users_collection_ref = db.collection('artifacts').document(app_id).collection('users')
-        
-        try:
-            # Busca todos os documentos de company_admin
-            company_admin_docs = users_collection_ref.where('role', '==', 'company_admin').stream()
-            for company_admin_doc in company_admin_docs:
-                current_company_id = company_admin_doc.id
-                sub_users_ref = users_collection_ref.document(current_company_id).collection('company_users')
-                
-                # Busca o sub-usuário dentro da subcoleção da empresa
-                query_ref = sub_users_ref.where('username', '==', username).stream()
-                for sub_user_doc in query_ref:
-                    sub_user_data = sub_user_doc.to_dict()
-                    # Verifica a senha (ATENÇÃO: A senha está em texto simples para esta demo. DEVE SER HASHED!)
-                    if sub_user_data.get("password") == password:
-                        user_data = sub_user_data
-                        firebase_uid = sub_user_data["firebase_uid"]
-                        role = sub_user_data["role"]
-                        company_id = current_company_id # Define a company_id do sub-usuário
-                        
-                        # Busca os dados de design da empresa do sub-usuário
-                        company_doc = users_collection_ref.document(current_company_id).get()
-                        if company_doc.exists:
-                            company_info = company_doc.to_dict()
-                            company_name = company_info.get("company_name")
-                            design_data = DEFAULT_THEMES.get(company_info.get("design_theme", "default"), DEFAULT_THEMES["default"])
-                            mercado_pago_access_token = company_info.get("mercado_pago_access_token")
-                        break # Encontrou o usuário, pode sair do loop interno
-                if user_data:
-                    break # Encontrou o usuário, pode sair do loop externo
-        except Exception as e:
-            print(f"ERRO ao buscar sub-usuário no Firestore: {e}")
-            return jsonify({"error": "Erro interno ao buscar usuário"}), 500
-
-    if user_data:
-        try:
-            # Garante que firebase_uid existe para o user_data
-            if not firebase_uid:
-                print(f"AVISO: user_data para {username} não tem firebase_uid. Tentando buscar no Firebase Auth por email.")
-                try:
-                    # Tenta encontrar o usuário no Firebase Auth por email se o UID estiver faltando
-                    # Isso assume que o formato do email é username@company_id.com
-                    email_to_check = f"{username}@{company_id}.com" if company_id else f"{username}@example.com"
-                    fb_user = auth.get_user_by_email(email_to_check)
-                    firebase_uid = fb_user.uid
-                    # Atualiza o user_data e users_db com o firebase_uid encontrado
-                    user_data['firebase_uid'] = firebase_uid
-                    if username in users_db:
-                        users_db[username]['firebase_uid'] = firebase_uid
-                    print(f"Firebase UID para {username} encontrado e atualizado em memória: {firebase_uid}")
-                except auth.UserNotFoundError:
-                    print(f"ERRO: Usuário Firebase Auth não encontrado para email {email_to_check}.")
-                    return jsonify({"error": "Erro interno: Usuário de autenticação não encontrado no Firebase Auth."}), 500
-                except Exception as e:
-                    print(f"ERRO ao buscar Firebase UID para {username}: {e}")
-                    return jsonify({"error": "Erro interno ao buscar UID do Firebase Auth."}), 500
-
-            # Define custom claims para o token personalizado do Firebase
-            claims = {
-                'role': role,
-                'company_id': company_id if company_id else username # company_id será o username para company_admin
+                if (response.ok) {
+                    // Adiciona o prefixo data:image/png;base64, se ainda não tiver
+                    if (data.qr_code_base64 && !data.qr_code_base64.startsWith('data:image/png;base64,')) {
+                        data.qr_code_base64 = 'data:image/png;base64,' + data.qr_code_base64;
+                    }
+                    setPixQrCodeData(data);
+                    showMessage("QR Code Pix gerado com sucesso!", "success");
+                    // Não finaliza a venda no Firestore aqui, espera a confirmação do pagamento Pix
+                    // Em um app real, você teria um webhook para confirmar o pagamento
+                } else {
+                    showMessage(`Erro ao gerar Pix: ${data.error || 'Erro desconhecido'}`, "error");
+                }
+            } catch (error) {
+                console.error('Erro ao gerar Pix:', error);
+                showMessage('Erro ao conectar ao servidor para gerar Pix.', 'error');
+            } finally {
+                setIsLoadingPix(false);
             }
-            print(f"Definindo custom claims para UID: {firebase_uid} com claims: {claims}")
-            auth.set_custom_user_claims(firebase_uid, claims)
-            print(f"Custom claims definidos com sucesso para UID: {firebase_uid}")
+            return; // Retorna para que a venda não seja finalizada no Firestore ainda
+        }
 
-            print(f"Criando custom token para UID: {firebase_uid}")
-            firebase_custom_token = auth.create_custom_token(firebase_uid)
-            firebase_custom_token_str = firebase_custom_token.decode('utf-8')
-            print(f"Custom token criado com sucesso para UID: {firebase_uid}")
+        // Lógica para finalizar a venda no Firestore (para Dinheiro e Cartão)
+        // NOVO: Calcular o custo total dos produtos vendidos (CPV)
+        const costOfGoodsSold = cart.reduce((sum, item) => sum + ((item.cost || 0) * item.quantity), 0);
 
-            print(f"Token Firebase gerado para UID: {firebase_uid} (Role: {role}, Company ID: {claims['company_id']}).")
-            print(f"Login bem-sucedido para o usuário: {username}.")
+        const saleData = {
+            items: cart.map(item => ({
+                productId: item.id,
+                name: item.name,
+                value: item.value,
+                cost: item.cost || 0, // Garante que o custo seja salvo
+                quantity: item.quantity
+            })),
+            total: total,
+            costOfGoodsSold: costOfGoodsSold, // NOVO: Salva o CPV
+            profit: total - costOfGoodsSold, // NOVO: Salva o lucro por venda
+            paymentMethod: paymentMethod,
+            paymentAmount: parseFloat(paymentAmount) || 0,
+            change: change,
+            timestamp: new Date(),
+            userId: currentUser.username // Usa o username do Flask como userId para o Firestore
+        };
 
-            response_data = {
-                "message": "Login bem-sucedido",
-                "username": username,
-                "role": role,
-                "company_name": company_name,
-                "firebase_token": firebase_custom_token_str,
-                "design": design_data
+        try {
+            await addDoc(collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`), saleData);
+            showMessage("Venda finalizada com sucesso!");
+            setCart([]);
+            setPaymentAmount('');
+            setChange(0);
+            setDifference(0);
+            setPaymentMethod('Dinheiro');
+            setPixQrCodeData(null); // Limpa dados Pix se a venda for finalizada por outro método
+        } catch (e) {
+            console.error("Erro ao adicionar documento: ", e);
+            showMessage("Erro ao finalizar venda.", "error");
+        }
+    };
+
+    // Product Management Functions
+    const handleAddProduct = async () => {
+        if (!newProductName || !newProductValue || !newProductId || newProductCost === '') { // NOVO: Validação para newProductCost
+            showMessage("Preencha todos os campos do produto!", "error");
+            return;
+        }
+        if (isNaN(parseFloat(newProductValue)) || isNaN(parseFloat(newProductCost))) { // NOVO: Validação para newProductCost
+            showMessage("O valor e o custo do produto devem ser números!", "error");
+            return;
+        }
+
+        const productData = {
+            name: newProductName,
+            value: parseFloat(newProductValue),
+            cost: parseFloat(newProductCost) // NOVO: Salva o custo
+        };
+
+        try {
+            // Referência ao documento com o ID fornecido pelo usuário
+            const productDocRef = doc(db, `artifacts/${appId}/users/${currentUser.username}/products`, newProductId);
+            const docSnap = await getDoc(productDocRef); // Verifica se o documento já existe
+
+            if (docSnap.exists()) {
+                showMessage("ID de produto já existe! Escolha um ID único.", "error");
+                return;
             }
 
-            if mercado_pago_access_token:
-                response_data["mercado_pago_access_token"] = mercado_pago_access_token
+            // Usa setDoc para criar um documento com o ID fornecido pelo usuário
+            await setDoc(productDocRef, productData);
+            showMessage("Produto adicionado com sucesso!");
+            setNewProductName('');
+            setNewProductValue('');
+            setNewProductCost(''); // NOVO: Limpa o campo de custo
+            setNewProductId('');
+        } catch (e) {
+            console.error("Erro ao adicionar produto: ", e);
+            showMessage("Erro ao adicionar produto.", "error");
+        }
+    };
 
-            return jsonify(response_data), 200
-        except Exception as e:
-            print(f"ERRO ao gerar token Firebase ou definir claims: {e}")
-            return jsonify({"error": "Erro interno ao gerar token de autenticação"}), 500
-    else:
-        print(f"Falha no login para o usuário: {username}")
-        return jsonify({"error": "Nome de usuário ou senha inválidos"}), 401
+    const handleEditProduct = (product) => {
+        setEditingProduct(product);
+        setNewProductName(product.name);
+        setNewProductValue(product.value.toString());
+        setNewProductCost(product.cost ? product.cost.toString() : ''); // NOVO: Carrega o custo
+        setNewProductId(product.id); // Keep the ID for display, but it's not editable
+    };
 
-# Rotas de planos removidas: /plans e /subscribe
+    const handleUpdateProduct = async () => {
+        if (!editingProduct || !newProductName || !newProductValue || newProductCost === '') { // NOVO: Validação para newProductCost
+            showMessage("Preencha todos os campos para atualizar!", "error");
+            return;
+        }
+        if (isNaN(parseFloat(newProductValue)) || isNaN(parseFloat(newProductCost))) { // NOVO: Validação para newProductCost
+            showMessage("O valor e o custo do produto devem ser números!", "error");
+            return;
+        }
 
-@app.route('/pix/generate', methods=['POST'])
-def generate_pix_qr_code():
-    """
-    Gera um QR Code Pix usando a API do Mercado Pago.
-    Busca o token do Mercado Pago da empresa logada para fazer a requisição.
-    """
-    data = request.get_json()
-    amount = data.get('amount')
-    description = data.get('description', 'Pagamento do App de Caixa')
-    company_username = data.get('company_username') # O frontend deve enviar o username da empresa
+        const productRef = doc(db, `artifacts/${appId}/users/${currentUser.username}/products`, editingProduct.id);
+        try {
+            await updateDoc(productRef, {
+                name: newProductName,
+                value: parseFloat(newProductValue),
+                cost: parseFloat(newProductCost) // NOVO: Atualiza o custo
+            });
+            showMessage("Produto atualizado com sucesso!");
+            setEditingProduct(null);
+            setNewProductName('');
+            setNewProductValue('');
+            setNewProductCost(''); // NOVO: Limpa o campo de custo
+            setNewProductId('');
+        } catch (e) {
+            console.error("Erro ao atualizar produto: ", e);
+            showMessage("Erro ao atualizar produto.", "error");
+        }
+    };
 
-    if not amount:
-        return jsonify({"error": "Valor é obrigatório para o Pix"}), 400
-    
-    try:
-        amount_float = float(amount)
-        if amount_float <= 0:
-            return jsonify({"error": "O valor do Pix deve ser maior que zero."}), 400
-    except ValueError:
-        return jsonify({"error": "O valor do Pix deve ser um número válido."}), 400
+    const handleDeleteProduct = async (productId) => {
+        console.log("Tentando excluir produto com ID:", productId);
+        console.log("Usuário atual para exclusão (currentUser.username):", currentUser.username);
+        console.log("UID do usuário autenticado no Firebase (auth.currentUser?.uid):", auth.currentUser?.uid); // Log do UID real do Firebase Auth
+        try {
+            // O caminho para exclusão deve corresponder ao caminho usado para buscar/adicionar
+            const docRef = doc(db, `artifacts/${appId}/users/${currentUser.username}/products`, productId);
+            console.log("Caminho do documento Firestore para exclusão:", docRef.path);
+
+            await deleteDoc(docRef);
+            showMessage("Produto excluído com sucesso!");
+        } catch (e) {
+            console.error("Erro ao excluir produto:", e);
+            console.error("Código do erro Firestore:", e.code); // Log do código de erro
+            console.error("Mensagem do erro Firestore:", e.message); // Log da mensagem de erro
+            if (e.code === 'permission-denied') {
+                showMessage("Erro de permissão: Você não tem autorização para excluir este produto. Verifique as permissões.", "error");
+            } else {
+                showMessage("Erro ao excluir produto.", "error");
+            }
+        }
+    };
+
+    const cancelEdit = () => {
+        setEditingProduct(null);
+        setNewProductName('');
+        setNewProductValue('');
+        setNewProductCost(''); // NOVO: Limpa o campo de custo
+        setNewProductId('');
+    };
+
+    // Calculate weekly sales report
+    const getWeeklySales = () => {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+        const weeklySales = sales.filter(sale => {
+            const saleDate = sale.timestamp.toDate(); // Convert Firestore Timestamp to Date object
+            return saleDate >= oneWeekAgo;
+        });
+
+        const salesByDay = {};
+        weeklySales.forEach(sale => {
+            const saleDate = sale.timestamp.toDate().toLocaleDateString('pt-BR');
+            // NOVO: Soma o lucro em vez do total
+            if (!salesByDay[saleDate]) {
+                salesByDay[saleDate] = 0;
+            }
+            salesByDay[saleDate] += sale.profit || (sale.total - (sale.costOfGoodsSold || 0)); // Garante que o lucro seja calculado se não estiver salvo
+        });
+
+        // Sort by date for display
+        const sortedSales = Object.entries(salesByDay).sort(([dateA], [dateB]) => {
+            const [dayA, monthA, yearA] = dateA.split('/').map(Number);
+            const [dayB, monthB, yearB] = dateB.split('/').map(Number);
+            const dateObjA = new Date(yearA, monthA - 1, dayA);
+            const dateObjB = new Date(yearB, monthB - 1, dayB);
+            return dateObjA - dateObjB;
+        });
+
+        return sortedSales;
+    };
+
+    // --- Funções de Autenticação com o Backend Flask ---
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await fetch(`${FLASK_BACKEND_URL}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username: loginUsername, password: loginPassword }),
+            });
+
+            const data = await response.json();
+            console.log("Dados recebidos do backend:", data);
+
+            if (response.ok) {
+                const firebaseToken = data.firebase_token;
+                if (firebaseToken) {
+                    try {
+                        await signInWithCustomToken(auth, firebaseToken);
+                        showMessage(`Login bem-sucedido! Bem-vindo, ${data.username}.`, 'success');
+                        setIsLoggedIn(true);
+                        // Armazena os dados de design no currentUser
+                        setCurrentUser({
+                            username: data.username,
+                            role: data.role,
+                            company_name: data.company_name,
+                            design: data.design // Armazena o objeto de design completo
+                        });
+                        setLoginPassword('');
+                        // Redireciona para a aba apropriada após o login
+                        if (data.role === 'admin') {
+                            setActiveTab('gerenciar_empresas');
+                        } else {
+                            setActiveTab('caixa');
+                        }
+                    } catch (firebaseError) {
+                        console.error("Erro ao autenticar no Firebase com token personalizado:", firebaseError);
+                        showMessage(`Erro ao conectar ao Firebase: ${firebaseError.message}`, 'error');
+                        setIsLoggedIn(false);
+                        setCurrentUser(null);
+                    }
+                } else {
+                    showMessage("Erro: Token Firebase não recebido do backend.", "error");
+                    console.error("Firebase token missing in Flask response. Full data:", data);
+                }
+            } else {
+                showMessage(`Erro de login: ${data.error || 'Credenciais inválidas'}`, 'error');
+            }
+        } catch (error) {
+            console.error('Erro ao conectar ao backend para login:', error);
+            showMessage('Erro ao conectar ao servidor. Verifique se o backend está rodando.', 'error');
+        }
+    };
+
+    const handleLogout = async () => {
+        // Resetar estados que controlam os listeners ANTES de deslogar do Firebase Auth
+        setIsLoggedIn(false);
+        setCurrentUser(null);
+        setLoginUsername('');
+        setLoginPassword('');
+        setCart([]);
+        setProducts([]);
+        setSales([]);
+        setCompanies([]);
+        setCompanyUsers([]); // Limpa usuários da empresa no logout
+
+        try {
+            await auth.signOut(); // Desloga do Firebase Auth
+            showMessage("Você foi desconectado.", "info");
+            setActiveTab('caixa'); // Volta para a aba padrão após logout
+        } catch (error) {
+            console.error("Erro ao deslogar do Firebase:", error);
+            showMessage("Erro ao desconectar.", "error");
+        }
+    };
+
+    // --- Funções de Gerenciamento de Empresas (para o admin principal) ---
+    const handleRegisterCompany = async (e) => {
+        e.preventDefault();
+        if (!newCompanyUsername || !newCompanyPassword || !newCompanyName) {
+            showMessage("Preencha todos os campos para registrar a empresa!", "error");
+            return;
+        }
+
+        try {
+            const response = await fetch(`${FLASK_BACKEND_URL}/register_company`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: newCompanyUsername,
+                    password: newCompanyPassword,
+                    company_name: newCompanyName,
+                    design_theme: newCompanyDesignTheme,
+                    mercado_pago_access_token: newCompanyMercadoPagoAccessToken,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage(`Empresa "${data.company_name}" (Usuário: ${data.username}) registrada com sucesso!`, 'success');
+                setNewCompanyUsername('');
+                setNewCompanyPassword('');
+                setNewCompanyName('');
+                setNewCompanyDesignTheme('default');
+                setNewCompanyMercadoPagoAccessToken(''); // Limpa o campo após o registro
+            } else {
+                showMessage(`Erro ao registrar empresa: ${data.error || 'Erro desconhecido'}`, "error");
+            }
+        } catch (error) {
+            console.error('Erro ao conectar ao backend para registrar empresa:', error);
+            showMessage('Erro ao conectar ao servidor para registrar empresa.', 'error');
+        }
+    };
+
+    // Função para excluir uma empresa (login)
+    const handleDeleteCompany = async (companyId) => {
+        if (!window.confirm(`Tem certeza que deseja excluir a empresa ${companyId} e TODOS os seus dados (produtos, vendas, etc.)? Esta ação é irreversível!`)) {
+            return;
+        }
+
+        try {
+            const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do usuário logado (admin)
+            const response = await fetch(`${FLASK_BACKEND_URL}/delete_company`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}` // Envia o ID Token para autenticação no backend
+                },
+                body: JSON.stringify({ company_username: companyId }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage(`Empresa "${companyId}" excluída com sucesso!`, 'success');
+            } else {
+                showMessage(`Erro ao excluir empresa: ${data.error || 'Erro desconhecido'}`, "error");
+            }
+        } catch (error) {
+            console.error('Erro ao conectar ao backend para excluir empresa:', error);
+            showMessage('Erro ao conectar ao servidor para excluir empresa.', 'error');
+        }
+    };
+
+    // --- Funções de Gerenciamento de Usuários da Empresa (para company_admin) ---
+    const handleAddCompanyUser = async (e) => {
+        e.preventDefault();
+        if (!newCompanyUserUsername || !newCompanyUserPassword || !newCompanyUserRole) {
+            showMessage("Preencha todos os campos para adicionar o usuário!", "error");
+            return;
+        }
+        if (!currentUser || !currentUser.username) {
+            showMessage("Erro: Administrador da empresa não identificado.", "error");
+            return;
+        }
+
+        try {
+            const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do company_admin logado
+            const response = await fetch(`${FLASK_BACKEND_URL}/company_users/add`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}` // Envia o ID Token para autenticação no backend
+                },
+                body: JSON.stringify({
+                    company_id: currentUser.username, // ID da empresa do admin logado
+                    username: newCompanyUserUsername,
+                    password: newCompanyUserPassword,
+                    role: newCompanyUserRole
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage(`Usuário "${data.username}" (${data.role}) adicionado com sucesso!`, 'success');
+                setNewCompanyUserUsername('');
+                setNewCompanyUserPassword('');
+                setNewCompanyUserRole('caixa');
+            } else {
+                showMessage(`Erro ao adicionar usuário: ${data.error || 'Erro desconhecido'}`, "error");
+            }
+        } catch (e) {
+            console.error("Erro ao adicionar usuário da empresa: ", e);
+            showMessage("Erro ao conectar ao servidor para adicionar usuário.", "error");
+        }
+    };
+
+    const handleEditCompanyUser = (user) => {
+        setEditingCompanyUser(user);
+        setNewCompanyUserUsername(user.username);
+        setNewCompanyUserRole(user.role);
+        // Não carregamos a senha para edição por segurança
+        setNewCompanyUserPassword('');
+    };
+
+    const handleUpdateCompanyUser = async (e) => {
+        e.preventDefault();
+        if (!editingCompanyUser || !newCompanyUserUsername || !newCompanyUserRole) {
+            showMessage("Preencha todos os campos para atualizar o usuário!", "error");
+            return;
+        }
+        if (!currentUser || !currentUser.username) {
+            showMessage("Erro: Administrador da empresa não identificado.", "error");
+            return;
+        }
+
+        try {
+            const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do company_admin logado
+            const response = await fetch(`${FLASK_BACKEND_URL}/company_users/update`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
+                body: JSON.stringify({
+                    company_id: currentUser.username,
+                    user_id: editingCompanyUser.id, // O ID do documento do usuário no Firestore (que é o firebase_uid)
+                    username: newCompanyUserUsername,
+                    password: newCompanyUserPassword || null, // Envia null se a senha não for alterada
+                    role: newCompanyUserRole
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage(`Usuário "${data.username}" atualizado com sucesso!`, 'success');
+                setEditingCompanyUser(null);
+                setNewCompanyUserUsername('');
+                setNewCompanyUserPassword('');
+                setNewCompanyUserRole('caixa');
+            } else {
+                showMessage(`Erro ao atualizar usuário: ${data.error || 'Erro desconhecido'}`, "error");
+            }
+        } catch (e) {
+            console.error("Erro ao atualizar usuário da empresa: ", e);
+            showMessage("Erro ao conectar ao servidor para atualizar usuário.", "error");
+        }
+    };
+
+    const handleDeleteCompanyUser = async (userId) => {
+        if (!window.confirm(`Tem certeza que deseja excluir o usuário ${userId}? Esta ação é irreversível!`)) {
+            return;
+        }
+        if (!currentUser || !currentUser.username) {
+            showMessage("Erro: Administrador da empresa não identificado.", "error");
+            return;
+        }
+
+        console.log("Tentando excluir usuário da empresa com ID:", userId); // NOVO LOG
+
+        try {
+            const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do company_admin logado
+            const response = await fetch(`${FLASK_BACKEND_URL}/company_users/delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
+                body: JSON.stringify({
+                    company_id: currentUser.username,
+                    user_id: userId // O ID do documento do usuário no Firestore (que é o firebase_uid)
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage(`Usuário "${userId}" excluído com sucesso!`, 'success');
+            } else {
+                showMessage(`Erro ao excluir usuário: ${data.error || 'Erro desconhecido'}`, "error");
+            }
+        } catch (e) {
+            console.error("Erro ao excluir usuário da empresa:", e);
+            showMessage("Erro ao conectar ao servidor para excluir usuário.", "error");
+        }
+    };
+
+    const cancelEditCompanyUser = () => {
+        setEditingCompanyUser(null);
+        setNewCompanyUserUsername('');
+        setNewCompanyUserPassword('');
+        setNewCompanyUserRole('caixa');
+    };
 
 
-    if not company_username:
-        return jsonify({"error": "Nome de usuário da empresa é obrigatório para gerar Pix"}), 400
+    // Função para copiar a chave Pix para a área de transferência
+    const copyPixKeyToClipboard = (key) => {
+        // Usa document.execCommand('copy') por compatibilidade em iframes
+        const el = document.createElement('textarea');
+        el.value = key;
+        document.body.appendChild(el);
+        el.select();
+        try {
+            document.execCommand('copy');
+            showMessage("Chave Pix copiada!", "success");
+        } catch (err) {
+            console.error('Erro ao copiar a chave Pix:', err);
+            showMessage("Falha ao copiar a chave Pix.", "error");
+        }
+        document.body.removeChild(el);
+    };
 
-    user = users_db.get(company_username)
-    if not user or user.get("role") != "company_admin":
-        return jsonify({"error": "Empresa não encontrada ou não autorizada"}), 403
+    // Filtrar produtos com base no termo de pesquisa
+    const filteredProducts = products.filter(product =>
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.id.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
-    mercado_pago_access_token = user.get("mercado_pago_access_token")
-    if not mercado_pago_access_token:
-        return jsonify({"error": "Token de acesso do Mercado Pago não configurado para esta empresa"}), 400
 
-    # --- INÍCIO DA REQUISIÇÃO REAL PARA A API DO MERCADO PAGO ---
-    # URL da API do Mercado Pago para pagamentos Pix
-    url = "https://api.mercadopago.com/v1/payments"
+    // Renderiza a tela de login se o usuário não estiver logado
+    if (!isLoggedIn) {
+        return (
+            <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-gray-800"> {/* Adicionado bg-gray-800 como fallback */}
+                {/* Video de Fundo para a tela de login */}
+                <video
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="absolute z-0 w-full h-full object-cover"
+                    src="https://videos.pexels.com/video-files/3752548/3752548-hd_1920_1080_24fps.mp4" // URL do vídeo para a tela de login
+                    onError={(e) => console.error("Erro ao carregar o vídeo de fundo da tela de login:", e)}
+                >
+                    Seu navegador não suporta a tag de vídeo.
+                </video>
 
-    # Dados da requisição (payload) para gerar o Pix
-    # Adapte estes dados conforme a documentação oficial do Mercado Pago para Pix
-    payload = {
-        "transaction_amount": amount_float, # O valor deve ser um float
-        "description": description,
-        "payment_method_id": "pix",
-        "payer": {
-            "email": "test_user_123@test.com" # Email de um pagador de teste (para testes)
-        },
-        # IMPORTANTE: Substitua 'https://your-production-domain.com/mercadopago-webhook' pela URL REAL do seu webhook em PRODUÇÃO.
-        # Esta URL deve ser acessível publicamente pelo Mercado Pago.
-        "notification_url": "https://your-production-domain.com/mercadopago-webhook"
+                {/* Overlay para legibilidade */}
+                <div className="absolute z-10 w-full h-full bg-black opacity-50"></div>
+
+                {message && (
+                    <div className={`fixed top-4 right-4 p-3 rounded-lg shadow-lg text-white z-50 transition-opacity duration-300 ${message.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                        {message.text}
+                    </div>
+                )}
+                <div className="relative z-20 bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">
+                        Login
+                    </h2>
+                    <form onSubmit={handleLogin}>
+                        <div className="mb-4">
+                            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="loginUsername">
+                                Nome de Usuário:
+                            </label>
+                            <input
+                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                id="loginUsername"
+                                type="text"
+                                placeholder="Nome de Usuário"
+                                value={loginUsername}
+                                onChange={(e) => setLoginUsername(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div className="mb-6">
+                            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="loginPassword">
+                                Senha:
+                            </label>
+                            <input
+                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:shadow-outline"
+                                id="loginPassword"
+                                type="password"
+                                placeholder="********"
+                                value={loginPassword}
+                                onChange={(e) => setLoginPassword(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div className="flex items-center justify-center">
+                            <button
+                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition-colors duration-200"
+                                type="submit"
+                            >
+                                Login
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
     }
 
-    print(f"Enviando payload para Mercado Pago: {payload}") # Log do payload
+    // Renderiza o aplicativo principal se o usuário estiver logado
+    const currentDesign = currentUser?.design || {}; // Garante que currentDesign não é nulo
 
-    # Gera um ID de idempotência único para esta requisição
-    idempotency_key = str(uuid.uuid4())
-    print(f"Usando X-Idempotency-Key: {idempotency_key}")
+    // Determina se o vídeo de fundo da aba "Gerenciar Empresas" deve ser ativo
+    const showCompanyManagementVideo = isLoggedIn && activeTab === 'gerenciar_empresas' && currentUser?.role === 'admin';
 
-    # Cabeçalhos da requisição, incluindo o Access Token para autenticação e a X-Idempotency-Key
-    headers = {
-        "Authorization": f"Bearer {mercado_pago_access_token}",
-        "Content-Type": "application/json",
-        "X-Idempotency-Key": idempotency_key # Adiciona o cabeçalho de idempotência
-    }
+    // Define o estilo de fundo dinamicamente (cores/gradiente)
+    const backgroundClasses = currentDesign.dominant_color
+        ? `${currentDesign.dominant_color}` // Usa a cor dominante se definida
+        : `${currentDesign.gradient_from || 'from-blue-50'} ${currentDesign.gradient_to || 'to-indigo-100'}`; // Volta para o gradiente se não houver cor dominante
 
-    try:
-        # Faz a requisição POST para a API do Mercado Pago
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status() # Levanta um erro para status de resposta HTTP ruins (4xx ou 5xx)
+    return (
+        <div
+            className={`min-h-screen p-4 ${currentDesign.font_family || 'font-sans'} flex flex-col items-center relative`}
+        >
+            {/* Vídeo de Fundo Condicional para a aba "Gerenciar Empresas" */}
+            {showCompanyManagementVideo && (
+                <>
+                    <video
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="absolute z-0 w-full h-full object-cover top-0 left-0"
+                        src="https://videos.pexels.com/video-files/30163656/12934691_1920_1080_30fps.mp4" // URL do vídeo para a aba de gerenciamento de empresas
+                        onError={(e) => console.error("Erro ao carregar o vídeo de fundo da Gerenciar Empresas:", e)}
+                    >
+                        Seu navegador não suporta a tag de vídeo para o fundo de gerenciamento de empresas.
+                    </video>
+                    {/* Overlay para legibilidade sobre o vídeo de fundo */}
+                    <div className="absolute z-10 w-full h-full bg-black opacity-50 top-0 left-0"></div>
+                </>
+            )}
 
-        # Converte a resposta JSON em um dicionário Python
-        mp_response_data = response.json()
-        print(f"Resposta completa da API do Mercado Pago (sucesso): {mp_response_data}") # NOVO: Log da resposta completa
+            {/* Fundo de cor/gradiente condicional para outras abas */}
+            {!showCompanyManagementVideo && (
+                <div className={`absolute z-0 w-full h-full top-0 left-0 ${backgroundClasses}`}></div>
+            )}
 
-        # Extrai os dados do QR Code e da chave "copia e cola" da resposta
-        # A estrutura da resposta pode variar, consulte a documentação do Mercado Pago
-        qr_code_base64 = mp_response_data.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code_base64")
-        copy_paste_key = mp_response_data.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code")
+            {/* Todo o conteúdo da aplicação com um z-index maior para ficar acima do fundo */}
+            <div className="relative z-20 w-full flex flex-col items-center">
+                {/* User ID Display */}
+                {currentUser && (
+                    <div className="absolute top-4 left-4 bg-white p-2 rounded-lg shadow-md text-sm text-gray-700">
+                        Usuário Logado: <span className="font-semibold">{currentUser.username}</span> (Função: {currentUser.role})
+                        {currentUser.company_name && (
+                            <span className="ml-2">Empresa: {currentUser.company_name}</span>
+                        )}
+                        <button
+                            onClick={handleLogout}
+                            className="ml-4 bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded-full transition-colors duration-200"
+                        >
+                            Sair
+                        </button>
+                    </div>
+                )}
 
-        if not qr_code_base64 or not copy_paste_key:
-            print(f"ERRO: Resposta inesperada da API do Mercado Pago: {mp_response_data}")
-            return jsonify({"error": "Falha ao obter dados do QR Code da API do Mercado Pago."}), 500
+                {/* Message Box */}
+                {message && (
+                    <div className={`fixed top-4 right-4 p-3 rounded-lg shadow-lg text-white z-50 transition-opacity duration-300 ${message.type === 'success' ? currentDesign.success_color : currentDesign.error_color}`}>
+                        {message.text}
+                    </div>
+                )}
 
-        # Retorna os dados para o frontend
-        return jsonify({
-            "qr_code_base64": qr_code_base64,
-            "copy_paste_key": copy_paste_key,
-            "status": mp_response_data.get("status", "pending"),
-            "transaction_amount": mp_response_data.get("transaction_amount"),
-            "description": description,
-            "payment_id": mp_response_data.get("id") # ID da transação no Mercado Pago
-        }), 200
+                <h1 className={`text-4xl font-extrabold ${currentDesign.text_color_strong || 'text-gray-800'} mb-8 mt-4 rounded-xl p-3 bg-white shadow-lg`}>
+                    Gerenciador de Caixa
+                </h1>
 
-    except requests.exceptions.RequestException as e:
-        print(f"ERRO na requisição à API do Mercado Pago: {e}")
-        # Tenta obter mais detalhes do erro se a resposta tiver conteúdo JSON
-        error_message = "Erro ao conectar com a API do Mercado Pago."
-        if response is not None: # Verifica se a resposta existe
-            print(f"Resposta de erro da API do Mercado Pago: {response.text}") # Log da resposta de erro
-            try:
-                error_data = response.json()
-                error_message = error_data.get("message", error_message)
-                # Adiciona detalhes específicos do erro do Mercado Pago, se disponíveis
-                if "cause" in error_data:
-                    error_message += f" Detalhes: {error_data['cause']}"
-            except ValueError:
-                error_message = f"Erro na API do Mercado Pago: {response.text}"
-        return jsonify({"error": error_message}), response.status_code if response is not None else 500
-    # --- FIM DA REQUISIÇÃO REAL PARA A API DO MERCADO PAGO ---
+                {/* Navigation Tabs */}
+                <div className="flex space-x-4 mb-8 bg-white p-2 rounded-full shadow-md">
+                    {/* Aba Caixa - Visível para company_admin, gerente, caixa */}
+                    {(currentUser.role === 'company_admin' || currentUser.role === 'gerente' || currentUser.role === 'caixa') && (
+                        <button
+                            onClick={() => setActiveTab('caixa')}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'caixa' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                        >
+                            Caixa
+                        </button>
+                    )}
+                    {/* Aba Produtos - Visível para company_admin e gerente */}
+                    {(currentUser.role === 'company_admin' || currentUser.role === 'gerente') && (
+                        <button
+                            onClick={() => setActiveTab('produtos')}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'produtos' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                        >
+                            Produtos
+                        </button>
+                    )}
+                    {/* Aba Relatórios - Visível para company_admin e gerente */}
+                    {(currentUser.role === 'company_admin' || currentUser.role === 'gerente') && (
+                        <button
+                            onClick={() => setActiveTab('relatorios')}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'relatorios' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                        >
+                            Relatórios
+                        </button>
+                    )}
+                    {/* Aba Gerenciar Usuários - Visível APENAS para company_admin */}
+                    {currentUser.role === 'company_admin' && (
+                        <button
+                            onClick={() => setActiveTab('gerenciar_usuarios')}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_usuarios' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                        >
+                            Gerenciar Usuários
+                        </button>
+                    )}
+                    {/* Aba Gerenciar Empresas - Visível APENAS para admin principal */}
+                    {currentUser.role === 'admin' && (
+                        <button
+                            onClick={() => setActiveTab('gerenciar_empresas')}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_empresas' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                        >
+                            Gerenciar Empresas
+                        </button>
+                    )}
+                </div>
 
-@app.route('/delete_company', methods=['POST'])
-@verify_firebase_token(required_role='admin') # Apenas o admin principal pode excluir empresas
-def delete_company():
-    """
-    Rota para excluir uma empresa (usuário com role 'company_admin') e todos os seus dados.
-    Esta rota deve ser acessada apenas por um 'admin' principal.
-    Requer autenticação via Firebase ID Token no cabeçalho Authorization.
-    """
-    # A autenticação já foi feita pelo decorador @verify_firebase_token
-    # request.current_user_uid já está disponível
+                {/* Caixa Tab Content (Visível para company_admin, gerente, caixa) */}
+                {(activeTab === 'caixa' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente' || currentUser.role === 'caixa')) && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full max-w-7xl">
+                        {/* Products List */}
+                        <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-xl">
+                            <h2 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                                Produtos Disponíveis
+                            </h2>
+                            {/* Barra de Pesquisa */}
+                            <div className="mb-4">
+                                <input
+                                    type="text"
+                                    placeholder="Pesquisar produto por nome ou ID..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                            <div className="max-h-96 overflow-y-auto">
+                                {filteredProducts.length === 0 ? (
+                                    <p className="text-gray-500">Nenhum produto encontrado ou cadastrado.</p>
+                                ) : (
+                                    filteredProducts.map(product => (
+                                        <div key={product.id} className="flex justify-between items-center bg-gray-50 p-3 mb-2 rounded-lg shadow-sm">
+                                            <div>
+                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'}`}>{product.name} (ID: {product.id})</p>
+                                                <p className={`${currentDesign.highlight_color || 'text-blue-600'} font-bold`}>R$ {product.value.toFixed(2)}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => addToCart(product)}
+                                                className={`bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md`}
+                                            >
+                                                Adicionar
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
 
-    data = request.get_json()
-    company_username_to_delete = data.get('company_username')
+                        {/* Cart and Payment */}
+                        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-xl flex flex-col">
+                            <h2 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                                Carrinho de Compras
+                            </h2>
+                            <div className="flex-grow max-h-80 overflow-y-auto mb-4">
+                                {cart.length === 0 ? (
+                                    <p className="text-gray-500">Carrinho vazio.</p>
+                                ) : (
+                                    cart.map(item => (
+                                        <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 mb-2 rounded-lg shadow-sm">
+                                            <div>
+                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'}`}>{item.name}</p>
+                                                <p className="text-gray-600">R$ {item.value.toFixed(2)} x {item.quantity}</p>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <button
+                                                    onClick={() => decreaseQuantity(item.id)}
+                                                    className="bg-red-400 hover:bg-red-500 text-white w-8 h-8 rounded-full flex items-center justify-center text-lg font-bold"
+                                                >
+                                                    -
+                                                </button>
+                                                <span className="font-bold text-lg">{item.quantity}</span>
+                                                <button
+                                                    onClick={() => increaseQuantity(item.id)}
+                                                    className="bg-green-400 hover:bg-green-500 text-white w-8 h-8 rounded-full flex items-center justify-center text-lg font-bold"
+                                                >
+                                                    +
+                                                </button>
+                                                <button
+                                                    onClick={() => removeFromCart(item.id)}
+                                                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full text-sm shadow-md"
+                                                >
+                                                    Remover
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
 
-    if not company_username_to_delete:
-        return jsonify({"error": "Nome de usuário da empresa é obrigatório"}), 400
+                            <div className={`mt-auto pt-4 border-t-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                                <div className={`flex justify-between items-center text-2xl font-bold ${currentDesign.text_color_strong || 'text-gray-800'} mb-4`}>
+                                    <span>Total:</span>
+                                    <span>R$ {total.toFixed(2)}</span>
+                                </div>
 
-    if company_username_to_delete == "admin":
-        return jsonify({"error": "Não é possível excluir o usuário administrador principal"}), 403
+                                <div className="mb-4">
+                                    <label htmlFor="paymentMethod" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} text-lg font-semibold mb-2`}>Método de Pagamento:</label>
+                                    <select
+                                        id="paymentMethod"
+                                        value={paymentMethod}
+                                        onChange={(e) => {
+                                            setPaymentMethod(e.target.value);
+                                            setPixQrCodeData(null); // Limpa os dados do Pix ao mudar o método
+                                        }}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-lg"
+                                    >
+                                        <option value="Dinheiro">Dinheiro</option>
+                                        <option value="Cartao">Cartão de Crédito/Débito</option>
+                                        <option value="Pix">Pix</option>
+                                    </select>
+                                </div>
 
-    # Remove do users_db em memória primeiro (para evitar que seja usado se o processo falhar mais tarde)
-    if company_username_to_delete in users_db:
-        del users_db[company_username_to_delete]
-        print(f"Empresa '{company_username_to_delete}' removida do users_db em memória.")
-    else:
-        print(f"Aviso: Empresa '{company_username_to_delete}' não encontrada no users_db em memória.")
+                                {paymentMethod === 'Dinheiro' && (
+                                    <div className="mb-4">
+                                        <label htmlFor="paymentAmount" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} text-lg font-semibold mb-2`}>Valor Pago:</label>
+                                        <input
+                                            type="number"
+                                            id="paymentAmount"
+                                            value={paymentAmount}
+                                            onChange={(e) => setPaymentAmount(e.target.value)}
+                                            placeholder="R$ 0.00"
+                                            step="0.01"
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-lg"
+                                        />
+                                    </div>
+                                )}
 
-    # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
-    app_id = os.getenv("APP_ID", "local-app-id") # Obtém o app_id
+                                {paymentMethod === 'Pix' && (
+                                    <div className="mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200 text-yellow-800">
+                                        <p className="font-semibold">Funcionalidade Pix:</p>
+                                        <p className="text-sm">
+                                            Para gerar o QR Code Pix, o aplicativo fará uma requisição ao seu backend Flask.
+                                        </p>
+                                        {isLoadingPix ? (
+                                            <div className="flex justify-center items-center py-4">
+                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500"></div>
+                                                <p className="ml-3">Gerando QR Code...</p>
+                                            </div>
+                                        ) : pixQrCodeData ? (
+                                            <div className="mt-3 text-center">
+                                                {/* Imagem do QR Code (usando base64 do backend) */}
+                                                <img
+                                                    src={pixQrCodeData.qr_code_base64 || `https://placehold.co/150x150/E0F2F7/000000?text=QR+Code+Pix`}
+                                                    alt="QR Code Pix"
+                                                    className="mx-auto rounded-lg shadow-md w-64 h-64"
+                                                />
+                                                <p className="mt-2 text-sm text-gray-700">
+                                                    Chave "copia e cola":
+                                                </p>
+                                                <div className="flex items-center justify-center mt-1">
+                                                    <input
+                                                        type="text"
+                                                        readOnly
+                                                        value={pixQrCodeData.copy_paste_key}
+                                                        className="flex-grow p-2 border border-gray-300 rounded-l-lg text-sm bg-gray-100"
+                                                    />
+                                                    <button
+                                                        onClick={() => copyPixKeyToClipboard(pixQrCodeData.copy_paste_key)}
+                                                        className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-r-lg text-sm"
+                                                    >
+                                                        Copiar
+                                                    </button>
+                                                </div>
+                                                <p className="mt-2 text-xs text-gray-600">
+                                                    * Em um cenário real, a venda seria finalizada após a confirmação do pagamento Pix via webhook.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="mt-3 text-center">
+                                                {/* Placeholder para o QR Code antes de gerar */}
+                                                <img
+                                                    src="https://placehold.co/150x150/E0F2F7/000000?text=QR+Code+Pix"
+                                                    alt="Placeholder QR Code Pix"
+                                                    className="mx-auto rounded-lg shadow-md w-64 h-64"
+                                                />
+                                                <p className="mt-2 text-xs text-gray-600">
+                                                    Clique em "Finalizar Venda" para gerar o QR Code.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
-    try:
-        # 1. Excluir o usuário do Firebase Authentication
-        try:
-            auth.delete_user(company_username_to_delete)
-            print(f"Usuário Firebase Auth '{company_username_to_delete}' excluído com sucesso.")
-        except auth.UserNotFoundError:
-            print(f"Usuário Firebase Auth '{company_username_to_delete}' não encontrado (já excluído ou nunca existiu).")
-        except Exception as e:
-            print(f"ERRO ao excluir usuário Firebase Auth '{company_username_to_delete}': {e}")
-            return jsonify({"error": f"Erro ao excluir usuário de autenticação: {e}"}), 500
+                                <div className={`flex justify-between items-center text-xl ${currentDesign.text_color_medium || 'text-gray-700'} mb-2`}>
+                                    <span>Diferença:</span>
+                                    <span className="font-bold text-red-600">R$ {difference.toFixed(2)}</span>
+                                </div>
+                                <div className={`flex justify-between items-center text-xl ${currentDesign.text_color_medium || 'text-gray-700'} mb-4`}>
+                                    <span>Troco:</span>
+                                    <span className="font-bold text-green-600">R$ {change.toFixed(2)}</span>
+                                </div>
 
-        # 2. Excluir os dados da empresa e suas subcoleções no Firestore
-        # Caminho base da coleção de dados do usuário
-        company_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_username_to_delete)
-        
-        try:
-            print(f"Iniciando exclusão recursiva do Firestore para o caminho: {company_doc_ref.path}")
-            db.recursive_delete(company_doc_ref)
-            print(f"Dados do Firestore para '{company_username_to_delete}' excluídos com sucesso.")
-        except Exception as e:
-            print(f"ERRO ao excluir dados do Firestore para '{company_username_to_delete}': {e}")
-            return jsonify({"error": f"Erro ao excluir dados da empresa no Firestore: {e}"}), 500
+                                <button
+                                    onClick={finalizeSale}
+                                    className={`w-full ${currentDesign.primary_button_bg || 'bg-blue-600'} ${currentDesign.primary_button_hover_bg || 'hover:bg-blue-700'} text-white text-xl font-bold py-4 rounded-xl transition-all duration-300 shadow-lg transform hover:scale-105`}
+                                >
+                                    Finalizar Venda
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
-        return jsonify({"message": f"Empresa '{company_username_to_delete}' e todos os seus dados excluídos com sucesso."}), 200
+                {/* Products Tab Content (Visível para company_admin e gerente) */}
+                {(activeTab === 'produtos' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente')) && (
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
+                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            {editingProduct ? 'Editar Produto' : 'Adicionar Novo Produto'}
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div>
+                                <label htmlFor="newProductId" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>ID do Produto:</label>
+                                <input
+                                    type="text"
+                                    id="newProductId"
+                                    value={newProductId}
+                                    onChange={(e) => setNewProductId(e.target.value)}
+                                    placeholder="Ex: PROD001"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    disabled={!!editingProduct} // Disable ID input when editing
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="newProductName" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome do Produto:</label>
+                                <input
+                                    type="text"
+                                    id="newProductName"
+                                    value={newProductName}
+                                    onChange={(e) => setNewProductName(e.target.value)}
+                                    placeholder="Ex: Refrigerante Lata"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="newProductValue" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Valor (R$):</label>
+                                <input
+                                    type="number"
+                                    id="newProductValue"
+                                    value={newProductValue}
+                                    onChange={(e) => setNewProductValue(e.target.value)}
+                                    placeholder="Ex: 5.50"
+                                    step="0.01"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                            {/* Campo para o Custo do Produto */}
+                            <div>
+                                <label htmlFor="newProductCost" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Custo (R$):</label>
+                                <input
+                                    type="number"
+                                    id="newProductCost"
+                                    value={newProductCost}
+                                    onChange={(e) => setNewProductCost(e.target.value)}
+                                    placeholder="Ex: 2.00"
+                                    step="0.01"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                        </div>
+                        <div className="flex justify-end space-x-4">
+                            {editingProduct ? (
+                                <>
+                                    <button
+                                        onClick={handleUpdateProduct}
+                                        className={`bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                    >
+                                        Atualizar Produto
+                                    </button>
+                                    <button
+                                        onClick={cancelEdit}
+                                        className={`bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                    >
+                                        Cancelar
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    onClick={handleAddProduct}
+                                    className={`${currentDesign.primary_button_bg || 'bg-blue-600'} ${currentDesign.primary_button_hover_bg || 'hover:bg-blue-700'} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                >
+                                    Adicionar Produto
+                                </button>
+                            )}
+                        </div>
 
-    except Exception as e:
-        print(f"ERRO geral ao excluir empresa: {e}")
-        return jsonify({"error": f"Erro interno ao excluir empresa: {e}"}), 500
+                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            Lista de Produtos
+                        </h3>
+                        <div className="max-h-96 overflow-y-auto">
+                            {products.length === 0 ? (
+                                <p className="text-gray-500">Nenhum produto cadastrado.</p>
+                            ) : (
+                                <ul className="space-y-3">
+                                    {products.map(product => (
+                                        <li key={product.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
+                                            <div>
+                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'} text-lg`}>Produto: {product.name} (ID: {product.id})</p>
+                                                <p className={`${currentDesign.highlight_color || 'text-blue-600'} font-bold text-xl`}>R$ {product.value.toFixed(2)}</p>
+                                                <p className="text-gray-600 text-sm">Custo: R$ {product.cost ? product.cost.toFixed(2) : '0.00'}</p>
+                                            </div>
+                                            <div className="flex space-x-3">
+                                                <button
+                                                    onClick={() => handleEditProduct(product)}
+                                                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
+                                                >
+                                                    Editar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteProduct(product.id)}
+                                                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
+                                                >
+                                                    Excluir
+                                                </button>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                )}
 
-# --- Rotas para Gerenciamento de Usuários da Empresa (para company_admin) ---
+                {/* Reports Tab Content (Visível para company_admin e gerente) */}
+                {(activeTab === 'relatorios' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente')) && (
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
+                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            Relatório de Lucro Semanal
+                        </h2>
+                        {sales.length === 0 ? (
+                            <p className="text-gray-500">Nenhuma venda registrada ainda.</p>
+                        ) : (
+                            <div className="max-h-96 overflow-y-auto">
+                                <table className="min-w-full bg-white rounded-lg overflow-hidden shadow-md">
+                                    <thead className={`${currentDesign.primary_button_bg || 'bg-blue-500'} text-white`}>
+                                        <tr>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Data</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Lucro Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {getWeeklySales().map(([date, profit]) => (
+                                            <tr key={date} className="hover:bg-gray-50">
+                                                <td className={`py-3 px-4 ${currentDesign.text_color_strong || 'text-gray-800'}`}>
+                                                    {date}
+                                                </td>
+                                                <td className="py-3 px-4 text-green-600 font-bold">R$ {profit.toFixed(2)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {getWeeklySales().length === 0 && (
+                                    <p className="text-gray-500 mt-4">Nenhuma venda na última semana.</p>
+                                )}
+                            </div>
+                        )}
 
-@app.route('/company_users/add', methods=['POST'])
-@verify_firebase_token(required_role='company_admin') # Apenas company_admin pode adicionar usuários
-def add_company_user():
-    """
-    Adiciona um novo usuário (caixa ou gerente) para uma empresa específica.
-    Cria o usuário no Firebase Authentication e salva seus dados no Firestore.
-    """
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    role = data.get('role') # 'caixa' ou 'gerente'
-    company_id = request.current_user_company_id # Obtém o ID da empresa do token do company_admin
+                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            Todas as Vendas
+                        </h3>
+                        <div className="max-h-96 overflow-y-auto">
+                            {sales.length === 0 ? (
+                                <p className="text-gray-500">Nenhuma venda registrada ainda.</p>
+                            ) : (
+                                <table className="min-w-full bg-white rounded-lg overflow-hidden shadow-md">
+                                    <thead className={`${currentDesign.primary_button_bg || 'bg-blue-500'} text-white`}>
+                                        <tr>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Data/Hora</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Itens</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Total</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Custo</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Lucro</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Método</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {sales.map(sale => (
+                                            <tr key={sale.id} className="hover:bg-gray-50">
+                                                <td className={`py-3 px-4 ${currentDesign.text_color_strong || 'text-gray-800'}`}>
+                                                    {sale.timestamp.toDate().toLocaleString('pt-BR')}
+                                                </td>
+                                                <td className={`py-3 px-4 ${currentDesign.text_color_medium || 'text-gray-700'}`}>
+                                                    {sale.items.map(item => (
+                                                        <p key={item.productId}>{item.name} (x{item.quantity})</p>
+                                                    ))}
+                                                </td>
+                                                <td className="py-3 px-4 text-green-600 font-bold">R$ {sale.total.toFixed(2)}</td>
+                                                <td className="py-3 px-4 text-gray-600">R$ {(sale.costOfGoodsSold || 0).toFixed(2)}</td>
+                                                <td className="py-3 px-4 text-purple-600 font-bold">R$ {(sale.profit || (sale.total - (sale.costOfGoodsSold || 0))).toFixed(2)}</td>
+                                                <td className={`py-3 px-4 ${currentDesign.text_color_medium || 'text-gray-700'}`}>{sale.paymentMethod}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    </div>
+                )}
 
-    if not username or not password or not role:
-        return jsonify({"error": "Nome de usuário, senha e função são obrigatórios"}), 400
-    
-    if role not in ['caixa', 'gerente']:
-        return jsonify({"error": "Função inválida. Escolha 'caixa' ou 'gerente'."}), 400
+                {/* Gerenciar Usuários Tab Content (Visível APENAS para company_admin) */}
+                {activeTab === 'gerenciar_usuarios' && currentUser.role === 'company_admin' && (
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
+                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            {editingCompanyUser ? 'Editar Usuário da Empresa' : 'Adicionar Novo Usuário da Empresa'}
+                        </h2>
+                        <form onSubmit={editingCompanyUser ? handleUpdateCompanyUser : handleAddCompanyUser} className="space-y-4 mb-8">
+                            <div>
+                                <label htmlFor="newCompanyUserUsername" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome de Usuário:</label>
+                                <input
+                                    type="text"
+                                    id="newCompanyUserUsername"
+                                    value={newCompanyUserUsername}
+                                    onChange={(e) => setNewCompanyUserUsername(e.target.value)}
+                                    placeholder="Ex: caixa01"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                    disabled={!!editingCompanyUser} // Desabilita edição do username
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="newCompanyUserPassword" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Senha:</label>
+                                <input
+                                    type="password"
+                                    id="newCompanyUserPassword"
+                                    value={newCompanyUserPassword}
+                                    onChange={(e) => setNewCompanyUserPassword(e.target.value)}
+                                    placeholder={editingCompanyUser ? "Deixe em branco para manter a senha atual" : "********"}
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    required={!editingCompanyUser} // Senha é obrigatória apenas ao adicionar
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="newCompanyUserRole" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Função:</label>
+                                <select
+                                    id="newCompanyUserRole"
+                                    value={newCompanyUserRole}
+                                    onChange={(e) => setNewCompanyUserRole(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                >
+                                    <option value="caixa">Caixa</option>
+                                    <option value="gerente">Gerente</option>
+                                    {/* O company_admin não pode criar outro company_admin */}
+                                </select>
+                            </div>
+                            <div className="flex justify-end space-x-4">
+                                {editingCompanyUser ? (
+                                    <>
+                                        <button
+                                            type="submit"
+                                            className={`bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                        >
+                                            Atualizar Usuário
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={cancelEditCompanyUser}
+                                            className={`bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        type="submit"
+                                        className={`${currentDesign.primary_button_bg || 'bg-blue-600'} ${currentDesign.primary_button_hover_bg || 'hover:bg-blue-700'} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                >
+                                        Adicionar Usuário
+                                    </button>
+                                )}
+                            </div>
+                        </form>
 
-    if not isinstance(password, str) or len(password) < 6:
-        return jsonify({"error": "A senha deve ser uma string com pelo menos 6 caracteres."}), 400
+                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            Usuários da Empresa
+                        </h3>
+                        <div className="max-h-96 overflow-y-auto">
+                            {companyUsers.length === 0 ? (
+                                <p className="text-gray-500">Nenhum usuário cadastrado para esta empresa.</p>
+                            ) : (
+                                <ul className="space-y-3">
+                                    {companyUsers.map(user => (
+                                        <li key={user.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
+                                            <div>
+                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'} text-lg`}>Usuário: {user.username}</p>
+                                                <p className="text-gray-600 text-sm">Função: {user.role}</p>
+                                                {/* Opcional: Mostrar o firebase_uid para depuração */}
+                                                {/* <p className="text-gray-400 text-xs">UID: {user.firebase_uid}</p> */}
+                                            </div>
+                                            <div className="flex space-x-3">
+                                                <button
+                                                    onClick={() => handleEditCompanyUser(user)}
+                                                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
+                                                >
+                                                    Editar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteCompanyUser(user.id)}
+                                                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
+                                                >
+                                                    Excluir
+                                                </button>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                )}
 
-    # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
-    app_id = os.getenv("APP_ID", "local-app-id")
+                {/* Gerenciar Empresas Tab Content (Visível APENAS para admin principal) */}
+                {activeTab === 'gerenciar_empresas' && currentUser.role === 'admin' && (
+                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
+                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            Registrar Nova Empresa
+                        </h2>
+                        <form onSubmit={handleRegisterCompany} className="space-y-4 mb-8">
+                            <div>
+                                <label htmlFor="newCompanyUsername" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome de Usuário da Empresa (ID):</label>
+                                <input
+                                    type="text"
+                                    id="newCompanyUsername"
+                                    value={newCompanyUsername}
+                                    onChange={(e) => setNewCompanyUsername(e.target.value)}
+                                    placeholder="Ex: empresa_abc"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="newCompanyPassword" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Senha da Empresa:</label>
+                                <input
+                                    type="password"
+                                    id="newCompanyPassword"
+                                    value={newCompanyPassword}
+                                    onChange={(e) => setNewCompanyPassword(e.target.value)}
+                                    placeholder="********"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="newCompanyName" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome Completo da Empresa:</label>
+                                <input
+                                    type="text"
+                                    id="newCompanyName"
+                                    value={newCompanyName}
+                                    onChange={(e) => setNewCompanyName(e.target.value)}
+                                    placeholder="Ex: ABC Comércio e Serviços Ltda."
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="newCompanyDesignTheme" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Tema de Design (Cores/Fontes):</label>
+                                <select
+                                    id="newCompanyDesignTheme"
+                                    value={newCompanyDesignTheme}
+                                    onChange={(e) => setNewCompanyDesignTheme(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                >
+                                    <option value="default">Padrão</option>
+                                    <option value="corporate">Corporativo</option>
+                                    <option value="vibrant">Vibrante</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label htmlFor="newCompanyMercadoPagoAccessToken" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Token de Acesso Mercado Pago:</label>
+                                <input
+                                    type="text"
+                                    id="newCompanyMercadoPagoAccessToken"
+                                    value={newCompanyMercadoPagoAccessToken}
+                                    onChange={(e) => setNewCompanyMercadoPagoAccessToken(e.target.value)}
+                                    placeholder="Token MP (ex: APP_USR-xxxxxxxxxxxx)"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                            <div className="flex justify-end">
+                                <button
+                                    type="submit"
+                                    onClick={handleRegisterCompany}
+                                    className={`bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                >
+                                    Registrar Empresa
+                                </button>
+                            </div>
+                        </form>
 
-    # Verifica se o username já existe para esta empresa no Firestore
-    company_users_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users')
-    query_ref = company_users_ref.where('username', '==', username).limit(1).get()
-    if len(query_ref) > 0:
-        return jsonify({"error": "Nome de usuário já existe para esta empresa."}), 409
+                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            Empresas Registradas
+                        </h3>
+                        <div className="max-h-96 overflow-y-auto">
+                            {companies.length === 0 ? (
+                                <p className="text-gray-500">Nenhuma empresa registrada ainda.</p>
+                            ) : (
+                                <ul className="space-y-3">
+                                    {companies.map(company => (
+                                        <li key={company.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
+                                            <div>
+                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'} text-lg`}>Nome: {company.company_name}</p>
+                                                <p className="text-gray-600 text-sm">Usuário (ID): {company.id}</p>
+                                                <p className="text-gray-600 text-sm">Tema: {company.design_theme}</p>
+                                            </div>
+                                            <div className="flex space-x-3">
+                                                <button
+                                                    onClick={() => handleDeleteCompany(company.id)}
+                                                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
+                                                >
+                                                    Excluir Empresa
+                                                </button>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
-    try:
-        # 1. Criar usuário no Firebase Authentication
-        # Usar um email único para o Firebase Auth (ex: username@company_id.com)
-        email = f"{username}@{company_id}.com"
-        user_record = auth.create_user(email=email, password=password, display_name=username)
-        print(f"Usuário Firebase Auth '{user_record.uid}' criado para '{username}' da empresa '{company_id}'.")
-
-        # 2. Definir custom claims para a função (role) e company_id
-        auth.set_custom_user_claims(user_record.uid, {'company_id': company_id, 'role': role})
-        print(f"Custom claims definidos para {user_record.uid}: {{'company_id': '{company_id}', 'role': '{role}'}}")
-
-        # 3. Armazenar dados do usuário no Firestore (na subcoleção da empresa)
-        # O ID do documento será o UID gerado pelo Firebase Auth
-        company_users_ref.document(user_record.uid).set({
-            'username': username,
-            'password': password, # ATENÇÃO: Em produção, a senha NÃO deve ser armazenada em texto simples!
-            'role': role,
-            'firebase_uid': user_record.uid, # Armazena o UID do Firebase Auth
-            'created_at': firestore.SERVER_TIMESTAMP
-        })
-        print(f"Dados do usuário '{username}' salvos no Firestore para empresa '{company_id}'.")
-
-        # Atualiza o users_db em memória para incluir o novo sub-usuário
-        users_db[username] = {
-            "password": password,
-            "role": role,
-            "company_id": company_id,
-            "firebase_uid": user_record.uid
-        }
-        print(f"Usuário '{username}' adicionado ao users_db em memória.")
-
-
-        return jsonify({"message": "Usuário adicionado com sucesso!", "username": username, "role": role}), 200
-    except Exception as e:
-        print(f"ERRO ao adicionar usuário da empresa: {e}")
-        # Tenta reverter a criação do usuário no Firebase Auth se a gravação no Firestore falhar
-        try:
-            if 'user_record' in locals():
-                auth.delete_user(user_record.uid)
-                print(f"Rollback: Usuário Firebase Auth '{user_record.uid}' deletado devido a erro na adição do sub-usuário.")
-        except Exception as rollback_e:
-            print(f"ERRO no rollback do Firebase Auth: {rollback_e}")
-        return jsonify({"error": f"Erro ao adicionar usuário da empresa: {e}"}), 500
-
-@app.route('/company_users/update', methods=['POST'])
-@verify_firebase_token(required_role='company_admin')
-def update_company_user():
-    """
-    Atualiza um usuário (caixa ou gerente) para uma empresa específica.
-    Atualiza o Firebase Authentication e seus dados no Firestore.
-    """
-    data = request.get_json()
-    user_id_to_update = data.get('user_id') # Este é o firebase_uid do usuário
-    username = data.get('username')
-    password = data.get('password') # Opcional: só atualiza se fornecido
-    role = data.get('role')
-    company_id = request.current_user_company_id # Obtém o ID da empresa do token do company_admin
-
-    if not user_id_to_update or not username or not role:
-        return jsonify({"error": "ID do usuário, nome de usuário e função são obrigatórios"}), 400
-    
-    if role not in ['caixa', 'gerente']:
-        return jsonify({"error": "Função inválida. Escolha 'caixa' ou 'gerente'."}), 400
-
-    if password and (not isinstance(password, str) or len(password) < 6):
-        return jsonify({"error": "A senha deve ser uma string com pelo menos 6 caracteres, se fornecida."}), 400
-
-    # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
-    app_id = os.getenv("APP_ID", "local-app-id")
-    user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_update)
-
-    try:
-        # 1. Atualizar usuário no Firebase Authentication
-        update_fields = {}
-        if password:
-            update_fields['password'] = password
-        
-        if update_fields:
-            auth.update_user(user_id_to_update, **update_fields)
-            print(f"Usuário Firebase Auth '{user_id_to_update}' atualizado.")
-
-        # 2. Atualizar custom claims no Firebase Auth
-        auth.set_custom_user_claims(user_id_to_update, {'company_id': company_id, 'role': role})
-        print(f"Custom claims atualizados para {user_id_to_update}: {{'company_id': '{company_id}', 'role': '{role}'}}")
-
-        # 3. Atualizar dados no Firestore
-        firestore_update_data = {
-            'username': username,
-            'role': role
-        }
-        if password:
-            firestore_update_data['password'] = password # ATENÇÃO: Em produção, a senha NÃO deve ser armazenada em texto simples!
-
-        user_doc_ref.update(firestore_update_data)
-        print(f"Dados do usuário '{username}' atualizados no Firestore para empresa '{company_id}'.")
-
-        # Atualiza o users_db em memória
-        # Primeiro, remove a entrada antiga se o username mudou
-        old_username = None
-        for key, val in users_db.items():
-            if val.get('firebase_uid') == user_id_to_update:
-                old_username = key
-                break
-        if old_username and old_username != username:
-            del users_db[old_username]
-            print(f"Usuário '{old_username}' removido do users_db em memória (username alterado).")
-
-        users_db[username] = {
-            "password": password if password else users_db.get(username, {}).get("password"), # Mantém a senha antiga se não for atualizada
-            "role": role,
-            "company_id": company_id,
-            "firebase_uid": user_id_to_update
-        }
-        print(f"Usuário '{username}' atualizado no users_db em memória.")
-
-        return jsonify({"message": "Usuário atualizado com sucesso!", "username": username, "role": role}), 200
-    except auth.UserNotFoundError:
-        return jsonify({"error": "Usuário não encontrado no Firebase Authentication."}), 404
-    except Exception as e:
-        print(f"ERRO ao atualizar usuário da empresa: {e}")
-        return jsonify({"error": f"Erro ao atualizar usuário da empresa: {e}"}), 500
-
-@app.route('/company_users/delete', methods=['POST'])
-@verify_firebase_token(required_role='company_admin')
-def delete_company_user():
-    """
-    Exclui um usuário (caixa ou gerente) para uma empresa específica.
-    Exclui o usuário do Firebase Authentication e seus dados do Firestore.
-    """
-    data = request.get_json()
-    user_id_to_delete = data.get('user_id') # Este é o firebase_uid do usuário
-    company_id = request.current_user_company_id # Obtém o ID da empresa do token do company_admin
-
-    if not user_id_to_delete:
-        return jsonify({"error": "ID do usuário é obrigatório"}), 400
-
-    if user_id_to_delete == request.current_user_uid: # Impede que um admin da empresa exclua a si mesmo
-        return jsonify({"error": "Você não pode excluir seu próprio usuário."}), 403
-
-    # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
-    app_id = os.getenv("APP_ID", "local-app-id")
-    # Correção: Usar user_id_to_delete em vez de user_id_to_update
-    user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_delete)
-
-    try:
-        # 1. Excluir usuário do Firebase Authentication
-        try:
-            auth.delete_user(user_id_to_delete)
-            print(f"Usuário Firebase Auth '{user_id_to_delete}' excluído.")
-        except auth.UserNotFoundError:
-            print(f"Usuário Firebase Auth '{user_id_to_delete}' não encontrado (já excluído ou nunca existiu).")
-        except Exception as e:
-            print(f"ERRO ao excluir usuário Firebase Auth: {e}")
-            return jsonify({"error": f"Erro ao excluir usuário de autenticação: {e}"}), 500
-
-        # 2. Excluir dados do usuário do Firestore
-        user_doc_ref.delete()
-        print(f"Dados do usuário '{user_id_to_delete}' excluídos do Firestore para empresa '{company_id}'.")
-
-        # 3. Remove do users_db em memória
-        username_to_remove = None
-        for key, val in users_db.items():
-            if val.get('firebase_uid') == user_id_to_delete:
-                username_to_remove = key
-                break
-        if username_to_remove:
-            del users_db[username_to_remove]
-            print(f"Usuário '{username_to_remove}' removido do users_db em memória.")
-
-        return jsonify({"message": f"Usuário '{user_id_to_delete}' excluído com sucesso."}), 200
-    except Exception as e:
-        print(f"ERRO ao excluir usuário da empresa: {e}")
-        return jsonify({"error": f"Erro ao excluir usuário da empresa: {e}"}), 500
-
-
-# --- Execução do Aplicativo ---
-if __name__ == '__main__':
-    # Em produção, o Gunicorn ou outro servidor WSGI será usado para rodar o app.
-    # Para desenvolvimento local, você pode usar:
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+export default App;
