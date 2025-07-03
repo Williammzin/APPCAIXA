@@ -859,44 +859,51 @@ def mercadopago_webhook():
     # Loga o payload completo da notificação para depuração
     print(f"Notificação de Webhook do Mercado Pago recebida: {json.dumps(data, indent=2)}")
 
-    # Verifica o tipo de notificação e o tópico
-    # O Mercado Pago pode enviar diferentes tipos de notificações (payments, merchant_orders, etc.)
-    # Para Pix, geralmente o tópico é 'payment' ou 'merchant_order'
-    topic = request.args.get('topic') # O tópico pode vir como query parameter
-    if not topic and 'type' in data: # Ou pode vir no corpo como 'type'
-        topic = data.get('type')
+    payment_id = None
+    # Tenta extrair o payment_id de diferentes formatos de payload
+    if 'data' in data and 'id' in data['data']:
+        payment_id = data['data']['id']
+    elif 'resource' in data: # Formato da API de Feed v2.0
+        payment_id = data['resource']
+    elif request.args.get('data.id'): # Pode vir como query parameter (Webhook v1.0)
+        payment_id = request.args.get('data.id')
+    elif request.args.get('id'): # Pode vir como query parameter (Feed v2.0)
+        payment_id = request.args.get('id')
 
-    if topic == 'payment':
-        payment_id = data.get('data', {}).get('id')
-        if payment_id:
-            print(f"Notificação de pagamento recebida para o ID: {payment_id}")
-            # Aqui você implementaria a lógica para:
-            # 1. Consultar a API do Mercado Pago novamente para obter os detalhes completos do pagamento
-            #    (para garantir que a notificação não é falsa e obter o status final).
-            # 2. Localizar a venda correspondente no seu Firestore usando o payment_id.
-            # 3. Atualizar o status da venda no Firestore para 'pago' ou 'aprovado'.
-            # Exemplo (apenas log, a implementação real de atualização do Firestore é mais complexa):
-            print(f"Lógica para atualizar o status da venda com payment_id {payment_id} no Firestore seria executada aqui.")
-            # Para um sistema completo:
-            # try:
-            #     # Supondo que você tenha uma coleção de 'pending_sales' ou 'sales' com o payment_id
-            #     sales_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).collection('sales')
-            #     query = sales_ref.where('payment_id', '==', payment_id).limit(1).get()
-            #     if query:
-            #         sale_doc = query[0]
-            #         await update_doc(sale_doc.reference, {'status': 'aprovado', 'payment_confirmed_at': firestore.SERVER_TIMESTAMP})
-            #         print(f"Venda {sale_doc.id} atualizada para 'aprovado' via webhook.")
-            # except Exception as e:
-            #     print(f"ERRO ao atualizar venda via webhook: {e}")
 
-        else:
-            print("Notificação de pagamento sem ID de pagamento válido.")
-    elif topic == 'merchant_order':
-        # Merchant_order é um agrupamento de pagamentos. Pode ser útil para vendas com múltiplos itens.
-        # Você pode processar aqui se precisar de detalhes da ordem de compra.
-        print(f"Notificação de ordem de compra recebida para o ID: {data.get('data', {}).get('id')}")
+    if payment_id:
+        print(f"Notificação de pagamento recebida para o ID: {payment_id}")
+        # Aqui você implementaria a lógica para:
+        # 1. Consultar a API do Mercado Pago novamente para obter os detalhes completos do pagamento
+        #    (para garantir que a notificação não é falsa e obter o status final).
+        #    Exemplo:
+        #    mercado_pago_access_token = "TOKEN_DA_EMPRESA_ASSOCIADA_A_ESTE_PAYMENT_ID" # Precisa buscar este token!
+        #    response = requests.get(f"https://api.mercadopago.com/v1/payments/{payment_id}", headers={"Authorization": f"Bearer {mercado_pago_access_token}"})
+        #    payment_details = response.json()
+        #    status = payment_details.get("status") # 'approved', 'pending', 'rejected'
+
+        # 2. Localizar a venda correspondente no seu Firestore usando o payment_id.
+        #    Para isso, você precisaria de uma forma de associar o payment_id à empresa e à venda.
+        #    Uma abordagem seria salvar o payment_id e o company_id em uma coleção temporária no Firestore
+        #    quando o QR Code é gerado.
+        #    Exemplo:
+        #    app_id = os.getenv("APP_ID", "local-app-id")
+        #    # Suponha que você tenha uma forma de encontrar o company_id_da_venda a partir do payment_id
+        #    company_id_da_venda = "ID_DA_EMPRESA_ASSOCIADA" # ESTE É O PONTO CRÍTICO A SER IMPLEMENTADO!
+        #    sales_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).collection('sales')
+        #    query = sales_ref.where('payment_id', '==', payment_id).limit(1).get()
+        #    if query:
+        #        sale_doc = query[0]
+        #        # Atualiza o status da venda no Firestore
+        #        await update_doc(sale_doc.reference, {'status': 'aprovado', 'payment_confirmed_at': firestore.SERVER_TIMESTAMP})
+        #        print(f"Venda {sale_doc.id} atualizada para 'aprovado' via webhook.")
+        #    else:
+        #        print(f"Venda com payment_id {payment_id} não encontrada no Firestore.")
+
+        print(f"Lógica para atualizar o status da venda com payment_id {payment_id} no Firestore seria executada aqui.")
+
     else:
-        print(f"Notificação de webhook de tópico desconhecido ou não processado: {topic}")
+        print("Notificação de webhook sem ID de pagamento válido.")
 
     # É CRUCIAL retornar um status 200 OK para o Mercado Pago para que ele saiba que a notificação foi recebida.
     return jsonify({"status": "ok"}), 200
