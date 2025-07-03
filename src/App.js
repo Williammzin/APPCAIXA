@@ -316,8 +316,8 @@ const App = () => {
                     body: JSON.stringify({
                         amount: total.toFixed(2),
                         description: "Pagamento de Venda",
-                        // Passa o saleId gerado pelo frontend como external_reference
-                        external_reference: saleId,
+                        // CORREÇÃO AQUI: Enviando como 'sale_id' em vez de 'external_reference'
+                        sale_id: saleId,
                     }),
                 });
 
