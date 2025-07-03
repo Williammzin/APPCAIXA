@@ -13,6 +13,7 @@
 
 # misc
 .DS_Store
+.env                            # Ignora o arquivo .env
 .env.local
 .env.development.local
 .env.test.local
@@ -22,6 +23,5 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-
-env
-*.json
+# Firebase Service Account Key (IMPORTANTE: Substitua pelo nome EXATO do seu arquivo de chave)
+caixa-1bd0c-firebase-adminsdk-fbsvc-29060eaa4f.json
