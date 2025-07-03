@@ -28,7 +28,7 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
 
 
 // URL base do seu backend Flask (AGORA APONTA PARA O KOYEB)
-const FLASK_BACKEND_URL = 'https://sua-url-do-koyeb.koyeb.app'; // <--- ATUALIZE ESTA LINHA COM A URL REAL DO SEU BACKEND KOYEB
+const FLASK_BACKEND_URL = 'old-owl-williammzin-cd2d4d31.koyeb.app'; // <--- ATUALIZE ESTA LINHA COM A URL REAL DO SEU BACKEND KOYEB
 
 // Main App Component
 const App = () => {
