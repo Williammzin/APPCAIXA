@@ -9,6 +9,7 @@ from dotenv import load_dotenv # Para carregar variáveis de ambiente
 import requests # Importa a biblioteca requests para fazer chamadas HTTP
 from functools import wraps # Para criar decoradores
 import json # Adicionado para lidar com JSON da variável de ambiente
+import mercadopago # Adicionado para a integração com o Mercado Pago
 
 # Importa o Firebase Admin SDK
 import firebase_admin
@@ -991,7 +992,7 @@ def delete_company_user():
 
     # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
     app_id = os.getenv("APP_ID", "local-app-id")
-    user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_update)
+    user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_delete)
 
     try:
         # 1. Excluir usuário do Firebase Authentication
