@@ -53,6 +53,11 @@ app = Flask(__name__)
 # Se você tiver outras URLs de frontend, adicione-as à lista.
 CORS(app, origins=["http://localhost:5000", "https://dainty-mochi-6412f2.netlify.app"])
 
+# --- Tratador de Erro 404 Personalizado (NOVO) ---
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({"error": "Recurso não encontrado", "message": str(error)}), 404
+
 # --- Banco de dados simples em memória (para demonstração) ---
 # users_db agora armazenará informações de empresas/administradores de empresas
 # Este users_db é usado principalmente para o login e para armazenar configurações
@@ -841,4 +846,3 @@ if __name__ == '__main__':
     # Para desenvolvimento local, você pode usar:
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
-
