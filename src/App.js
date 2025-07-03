@@ -2,8 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, deleteDoc, query, where, setDoc, getDoc } from 'firebase/firestore'; // Adicionado setDoc e getDoc
-// Removido: import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Importa o Firebase Storage
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, where, setDoc, getDoc } from 'firebase/firestore'; // 'getDocs' removido
 
 // Firebase configuration and initialization
 // Your specific Firebase project configuration is now hardcoded here for local development.
@@ -24,10 +23,12 @@ const auth = getAuth(app);
 
 // Global variables for app ID and initial auth token (from Canvas environment)
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? initialAuthToken : null;
+// Corrigido: 'initialAuthToken' foi usado antes de ser definido
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-// URL base do seu backend Flask
-const FLASK_BACKEND_URL = 'http://127.0.0.1:5000';
+
+// URL base do seu backend Flask (AGORA APONTA PARA O KOYEB)
+const FLASK_BACKEND_URL = 'https://sua-url-do-koyeb.koyeb.app'; // <--- ATUALIZE ESTA LINHA COM A URL REAL DO SEU BACKEND KOYEB
 
 // Main App Component
 const App = () => {
@@ -172,7 +173,7 @@ const App = () => {
             if (unsubscribeCompanyUsers) unsubscribeCompanyUsers();
             console.log("Firestore listeners for Products, Sales, and Company Users unsubscribed.");
         };
-    }, [isLoggedIn, currentUser, appId]);
+    }, [isLoggedIn, currentUser]); // Removido 'appId' da dependência
 
     // Listener para carregar a lista de empresas (apenas para admin principal)
     useEffect(() => {
@@ -197,7 +198,7 @@ const App = () => {
             unsubscribeCompanies();
             console.log("Firestore listener for Companies unsubscribed.");
         };
-    }, [isLoggedIn, currentUser, appId]);
+    }, [isLoggedIn, currentUser]); // Removido 'appId' da dependência
 
 
     // Calculate total whenever cart changes
@@ -440,7 +441,7 @@ const App = () => {
             console.error("Código do erro Firestore:", e.code); // Log do código de erro
             console.error("Mensagem do erro Firestore:", e.message); // Log da mensagem de erro
             if (e.code === 'permission-denied') {
-                showMessage("Erro de permissão: Você não tem autorização para excluir este produto. Verifique as regras de segurança do Firestore.", "error");
+                showMessage("Erro de permissão: Você não tem autorização para excluir este produto. Verifique as permissões.", "error");
             } else {
                 showMessage("Erro ao excluir produto.", "error");
             }
@@ -1342,10 +1343,10 @@ const App = () => {
                         <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
                             Todas as Vendas
                         </h3>
-                        {sales.length === 0 ? (
-                            <p className="text-gray-500">Nenhuma venda registrada ainda.</p>
-                        ) : (
-                            <div className="max-h-96 overflow-y-auto">
+                        <div className="max-h-96 overflow-y-auto">
+                            {sales.length === 0 ? (
+                                <p className="text-gray-500">Nenhuma venda registrada ainda.</p>
+                            ) : (
                                 <table className="min-w-full bg-white rounded-lg overflow-hidden shadow-md">
                                     <thead className={`${currentDesign.primary_button_bg || 'bg-blue-500'} text-white`}>
                                         <tr>
@@ -1376,8 +1377,8 @@ const App = () => {
                                         ))}
                                     </tbody>
                                 </table>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 )}
 
