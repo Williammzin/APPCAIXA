@@ -848,59 +848,83 @@ def delete_company_user():
         return jsonify({"error": f"Erro ao excluir usuário da empresa: {e}"}), 500
 
 # --- NOVO: Rota para o Webhook do Mercado Pago ---
-@app.route('/mercadopago-webhook', methods=['POST'])
+@app.route('/mercadopago-webhook', methods=['GET', 'POST']) # Adicionado 'GET' pois algumas notificações podem vir assim
 def mercadopago_webhook():
     """
     Endpoint para receber notificações do Mercado Pago sobre o status dos pagamentos.
     Quando um pagamento Pix é confirmado, o Mercado Pago envia uma notificação para esta URL.
     """
-    data = request.json # O Mercado Pago envia o payload como JSON
+    # Loga o payload completo da notificação para depuração
+    # Tenta obter o JSON do corpo da requisição, se disponível
+    data = request.json if request.is_json else {}
     
     # Loga o payload completo da notificação para depuração
-    print(f"Notificação de Webhook do Mercado Pago recebida: {json.dumps(data, indent=2)}")
+    print(f"Notificação de Webhook do Mercado Pago recebida (corpo): {json.dumps(data, indent=2)}")
+    print(f"Notificação de Webhook do Mercado Pago recebida (query params): {request.args}")
 
     payment_id = None
-    # Tenta extrair o payment_id de diferentes formatos de payload
-    if 'data' in data and 'id' in data['data']:
-        payment_id = data['data']['id']
-    elif 'resource' in data: # Formato da API de Feed v2.0
-        payment_id = data['resource']
-    elif request.args.get('data.id'): # Pode vir como query parameter (Webhook v1.0)
+    # Prioriza a extração do payment_id dos query parameters, pois algumas notificações usam apenas isso
+    if request.args.get('data.id'): # Formato Webhook v1.0 (ex: ?data.id=123)
         payment_id = request.args.get('data.id')
-    elif request.args.get('id'): # Pode vir como query parameter (Feed v2.0)
+    elif request.args.get('id'): # Formato Feed v2.0 (ex: ?id=123)
         payment_id = request.args.get('id')
+    # Se não encontrado nos query parameters, tenta extrair do corpo JSON
+    elif 'data' in data and 'id' in data['data']: # Formato comum de payment.created/updated
+        payment_id = data['data']['id']
+    elif 'resource' in data: # Formato da API de Feed v2.0 (quando vem no corpo JSON)
+        payment_id = data['resource']
 
 
     if payment_id:
         print(f"Notificação de pagamento recebida para o ID: {payment_id}")
-        # Aqui você implementaria a lógica para:
-        # 1. Consultar a API do Mercado Pago novamente para obter os detalhes completos do pagamento
-        #    (para garantir que a notificação não é falsa e obter o status final).
-        #    Exemplo:
-        #    mercado_pago_access_token = "TOKEN_DA_EMPRESA_ASSOCIADA_A_ESTE_PAYMENT_ID" # Precisa buscar este token!
-        #    response = requests.get(f"https://api.mercadopago.com/v1/payments/{payment_id}", headers={"Authorization": f"Bearer {mercado_pago_access_token}"})
-        #    payment_details = response.json()
-        #    status = payment_details.get("status") # 'approved', 'pending', 'rejected'
-
-        # 2. Localizar a venda correspondente no seu Firestore usando o payment_id.
-        #    Para isso, você precisaria de uma forma de associar o payment_id à empresa e à venda.
-        #    Uma abordagem seria salvar o payment_id e o company_id em uma coleção temporária no Firestore
-        #    quando o QR Code é gerado.
-        #    Exemplo:
+        
+        # --- Lógica para processar a notificação e atualizar o Firestore ---
+        # 1. OBTENHA DETALHES COMPLETOS DO PAGAMENTO DO MERCADO PAGO (OPCIONAL, MAS RECOMENDADO)
+        #    Isso ajuda a verificar a autenticidade da notificação e obter o status final.
+        #    Você precisará do 'access_token' da empresa associada a este 'payment_id'.
+        #    Como obter o 'access_token' aqui?
+        #    Você pode ter salvo o 'payment_id' junto com o 'company_id' quando gerou o QR Code.
+        #    Exemplo (requer que você tenha salvo 'company_id' com 'payment_id'):
         #    app_id = os.getenv("APP_ID", "local-app-id")
-        #    # Suponha que você tenha uma forma de encontrar o company_id_da_venda a partir do payment_id
-        #    company_id_da_venda = "ID_DA_EMPRESA_ASSOCIADA" # ESTE É O PONTO CRÍTICO A SER IMPLEMENTADO!
-        #    sales_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).collection('sales')
-        #    query = sales_ref.where('payment_id', '==', payment_id).limit(1).get()
-        #    if query:
-        #        sale_doc = query[0]
-        #        # Atualiza o status da venda no Firestore
-        #        await update_doc(sale_doc.reference, {'status': 'aprovado', 'payment_confirmed_at': firestore.SERVER_TIMESTAMP})
-        #        print(f"Venda {sale_doc.id} atualizada para 'aprovado' via webhook.")
+        #    pending_pix_ref = db.collection('artifacts').document(app_id).collection('pending_pix_payments')
+        #    pix_doc = pending_pix_ref.document(payment_id).get() # Assumindo que o doc ID é o payment_id
+        #    if pix_doc.exists:
+        #        pix_data = pix_doc.to_dict()
+        #        company_id_da_venda = pix_data.get('company_id')
+        #        # Agora, busque o access_token da empresa
+        #        company_doc = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).get()
+        #        if company_doc.exists:
+        #            mercado_pago_access_token = company_doc.to_dict().get('mercado_pago_access_token')
+        #            if mercado_pago_access_token:
+        #                try:
+        #                    response = requests.get(f"https://api.mercadopago.com/v1/payments/{payment_id}", headers={"Authorization": f"Bearer {mercado_pago_access_token}"})
+        #                    response.raise_for_status()
+        #                    payment_details = response.json()
+        #                    status = payment_details.get("status") # 'approved', 'pending', 'rejected', 'cancelled'
+        #                    print(f"Status do pagamento {payment_id} via API do Mercado Pago: {status}")
+        #
+        #                    # 2. LOCALIZAR E ATUALIZAR A VENDA CORRESPONDENTE NO FIRESTORE
+        #                    sales_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).collection('sales')
+        #                    # Você precisaria ter salvo o payment_id na venda quando ela foi criada como 'pendente'
+        #                    query_sales = sales_ref.where('payment_id', '==', payment_id).limit(1).get()
+        #                    if query_sales:
+        #                        sale_doc = query_sales[0]
+        #                        await sale_doc.reference.update({'status': status, 'payment_confirmed_at': firestore.SERVER_TIMESTAMP})
+        #                        print(f"Venda {sale_doc.id} atualizada para '{status}' via webhook.")
+        #                    else:
+        #                        print(f"Venda com payment_id {payment_id} não encontrada no Firestore para atualização.")
+        #
+        #                except requests.exceptions.RequestException as e:
+        #                    print(f"ERRO ao consultar API do Mercado Pago para detalhes do pagamento: {e}")
+        #            else:
+        #                print(f"Access Token do Mercado Pago não encontrado para a empresa {company_id_da_venda}.")
+        #        else:
+        #            print(f"Empresa {company_id_da_venda} não encontrada no Firestore para buscar Access Token.")
         #    else:
-        #        print(f"Venda com payment_id {payment_id} não encontrada no Firestore.")
+        #        print(f"Documento de Pix pendente para {payment_id} não encontrado no Firestore.")
+        # --- FIM DA LÓGICA DE ATUALIZAÇÃO ---
 
-        print(f"Lógica para atualizar o status da venda com payment_id {payment_id} no Firestore seria executada aqui.")
+        print(f"Lógica para consultar o status real do pagamento e atualizar a venda no Firestore seria executada aqui.")
 
     else:
         print("Notificação de webhook sem ID de pagamento válido.")
