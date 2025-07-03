@@ -49,11 +49,11 @@ app = Flask(__name__)
 
 # --- Configuração do CORS ---
 # Permite requisições do seu frontend Netlify e do ambiente de desenvolvimento local.
-# Substitua 'https://dainty-mochi-6412f2.netlify.app' pela URL real do seu frontend no Netlify.
+# **ATUALIZADO:** Substitua 'https://dainty-mochi-6412f2.netlify.app' pela sua NOVA URL real do frontend.
 # Se você tiver outras URLs de frontend, adicione-as à lista.
 CORS(app, origins=["http://localhost:5000", "https://appcaixa.netlify.app"])
 
-# --- Tratador de Erro 404 Personalizado (NOVO) ---
+# --- Tratador de Erro 404 Personalizado ---
 @app.errorhandler(404)
 def not_found_error(error):
     return jsonify({"error": "Recurso não encontrado", "message": str(error)}), 404
@@ -501,6 +501,14 @@ def generate_pix_qr_code():
     # URL da API do Mercado Pago para pagamentos Pix
     url = "https://api.mercadopago.com/v1/payments"
 
+    # A URL do seu backend no Koyeb (onde o webhook estará)
+    # Substitua 'sua-url-do-koyeb.koyeb.app' pela URL real do seu backend no Koyeb
+    # Ex: https://old-owl-williammzin-cd2d4d31.koyeb.app
+    koyeb_backend_url = os.getenv("KOYEB_BACKEND_URL", "https://old-owl-williammzin-cd2d4d31.koyeb.app")
+    webhook_url = f"{koyeb_backend_url}/mercadopago-webhook"
+    print(f"URL do Webhook para Mercado Pago: {webhook_url}")
+
+
     # Dados da requisição (payload) para gerar o Pix
     # Adapte estes dados conforme a documentação oficial do Mercado Pago para Pix
     payload = {
@@ -510,9 +518,9 @@ def generate_pix_qr_code():
         "payer": {
             "email": "test_user_123@test.com" # Email de um pagador de teste (para testes)
         },
-        # IMPORTANTE: Substitua 'https://your-production-domain.com/mercadopago-webhook' pela URL REAL do seu webhook em PRODUÇÃO.
-        # Esta URL deve ser acessível publicamente pelo Mercado Pago.
-        "notification_url": "https://your-production-domain.com/mercadopago-webhook"
+        # IMPORTANTE: Esta é a URL que o Mercado Pago irá chamar quando o pagamento mudar de status.
+        # Ela deve ser a URL pública do seu backend no Koyeb, apontando para a rota do webhook.
+        "notification_url": webhook_url
     }
 
     print(f"Enviando payload para Mercado Pago: {payload}") # Log do payload
@@ -838,6 +846,60 @@ def delete_company_user():
     except Exception as e:
         print(f"ERRO ao excluir usuário da empresa: {e}")
         return jsonify({"error": f"Erro ao excluir usuário da empresa: {e}"}), 500
+
+# --- NOVO: Rota para o Webhook do Mercado Pago ---
+@app.route('/mercadopago-webhook', methods=['POST'])
+def mercadopago_webhook():
+    """
+    Endpoint para receber notificações do Mercado Pago sobre o status dos pagamentos.
+    Quando um pagamento Pix é confirmado, o Mercado Pago envia uma notificação para esta URL.
+    """
+    data = request.json # O Mercado Pago envia o payload como JSON
+    
+    # Loga o payload completo da notificação para depuração
+    print(f"Notificação de Webhook do Mercado Pago recebida: {json.dumps(data, indent=2)}")
+
+    # Verifica o tipo de notificação e o tópico
+    # O Mercado Pago pode enviar diferentes tipos de notificações (payments, merchant_orders, etc.)
+    # Para Pix, geralmente o tópico é 'payment' ou 'merchant_order'
+    topic = request.args.get('topic') # O tópico pode vir como query parameter
+    if not topic and 'type' in data: # Ou pode vir no corpo como 'type'
+        topic = data.get('type')
+
+    if topic == 'payment':
+        payment_id = data.get('data', {}).get('id')
+        if payment_id:
+            print(f"Notificação de pagamento recebida para o ID: {payment_id}")
+            # Aqui você implementaria a lógica para:
+            # 1. Consultar a API do Mercado Pago novamente para obter os detalhes completos do pagamento
+            #    (para garantir que a notificação não é falsa e obter o status final).
+            # 2. Localizar a venda correspondente no seu Firestore usando o payment_id.
+            # 3. Atualizar o status da venda no Firestore para 'pago' ou 'aprovado'.
+            # Exemplo (apenas log, a implementação real de atualização do Firestore é mais complexa):
+            print(f"Lógica para atualizar o status da venda com payment_id {payment_id} no Firestore seria executada aqui.")
+            # Para um sistema completo:
+            # try:
+            #     # Supondo que você tenha uma coleção de 'pending_sales' ou 'sales' com o payment_id
+            #     sales_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).collection('sales')
+            #     query = sales_ref.where('payment_id', '==', payment_id).limit(1).get()
+            #     if query:
+            #         sale_doc = query[0]
+            #         await update_doc(sale_doc.reference, {'status': 'aprovado', 'payment_confirmed_at': firestore.SERVER_TIMESTAMP})
+            #         print(f"Venda {sale_doc.id} atualizada para 'aprovado' via webhook.")
+            # except Exception as e:
+            #     print(f"ERRO ao atualizar venda via webhook: {e}")
+
+        else:
+            print("Notificação de pagamento sem ID de pagamento válido.")
+    elif topic == 'merchant_order':
+        # Merchant_order é um agrupamento de pagamentos. Pode ser útil para vendas com múltiplos itens.
+        # Você pode processar aqui se precisar de detalhes da ordem de compra.
+        print(f"Notificação de ordem de compra recebida para o ID: {data.get('data', {}).get('id')}")
+    else:
+        print(f"Notificação de webhook de tópico desconhecido ou não processado: {topic}")
+
+    # É CRUCIAL retornar um status 200 OK para o Mercado Pago para que ele saiba que a notificação foi recebida.
+    return jsonify({"status": "ok"}), 200
 
 
 # --- Execução do Aplicativo ---
