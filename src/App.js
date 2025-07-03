@@ -28,8 +28,8 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
 
 
 // URL base do seu backend Flask (AGORA APONTA PARA O KOYEB)
-// ATENÇÃO: SUBSTITUA 'https://sua-url-do-koyeb.koyeb.app' PELA URL REAL DO SEU BACKEND KOYEB!
-const FLASK_BACKEND_URL = 'old-owl-williammzin-cd2d4d31.koyeb.app';
+// ATENÇÃO: SUBSTITUA 'https://old-owl-williammzin-cd2d4d31.koyeb.app' PELA URL REAL DO SEU BACKEND KOYEB!
+const FLASK_BACKEND_URL = 'https://old-owl-williammzin-cd2d4d31.koyeb.app';
 
 // Main App Component
 const App = () => {
@@ -58,7 +58,7 @@ const App = () => {
 
     // Estados para Gerenciar Empresas (para o admin principal)
     const [newCompanyUsername, setNewCompanyUsername] = useState('');
-    const [newCompanyPassword, setNewCompanyPassword] = useState('');
+    const [newCompanyPassword, setNewCompanyPassword] = '';
     const [newCompanyName, setNewCompanyName] = useState('');
     const [newCompanyDesignTheme, setNewCompanyDesignTheme] = useState('default');
     const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = useState('');
