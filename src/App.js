@@ -1,4 +1,4 @@
-/* global __app_id, __initial_auth_token */
+/* global __app_id */ // '__initial_auth_token' removido daqui
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
