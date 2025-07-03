@@ -21,10 +21,10 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 // Removido: const storage = getStorage(app); // Inicializa o Firebase Storage
 
-// Global variables for app ID and initial auth token (from Canvas environment)
+// Global variables for app ID (from Canvas environment)
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
-// Corrigido: 'initialAuthToken' foi usado antes de ser definido
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+// Removido: initialAuthToken não é usado e estava causando erro de compilação.
+// const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 
 // URL base do seu backend Flask (AGORA APONTA PARA O KOYEB)
@@ -1449,7 +1449,7 @@ const App = () => {
                                     <button
                                         type="submit"
                                         className={`${currentDesign.primary_button_bg || 'bg-blue-600'} ${currentDesign.primary_button_hover_bg || 'hover:bg-blue-700'} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
-                                    >
+                                >
                                         Adicionar Usuário
                                     </button>
                                 )}
