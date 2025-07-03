@@ -37,7 +37,8 @@ if "private_key" in service_account_dict:
 try:
     # Carrega as credenciais diretamente do conteúdo JSON da variável de ambiente
     cred = credentials.Certificate(service_account_dict)
-    firebase_admin.initializeApp(cred)
+    # CORREÇÃO: firebase_admin.initializeApp(cred) foi alterado para firebase_admin.initialize_app(cred)
+    firebase_admin.initialize_app(cred)
     db = firestore.client() # Inicializa o cliente Firestore
     print("Firebase Admin SDK inicializado com sucesso usando variável de ambiente.")
 except Exception as e:
