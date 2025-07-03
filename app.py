@@ -466,7 +466,7 @@ def generate_pix_qr_code():
     description = data.get('description', 'Pagamento do App de Caixa')
     company_username = data.get('company_username') # O frontend deve enviar o username da empresa
     # NOVO: Recebe o sale_id do frontend para usar como external_reference
-    sale_id = data.get('sale_id') 
+    sale_id = data.get('sale_id') # Adicionado novamente, pois foi removido na versão anterior
 
     if not amount:
         return jsonify({"error": "Valor é obrigatório para o Pix"}), 400
@@ -478,10 +478,12 @@ def generate_pix_qr_code():
     except ValueError:
         return jsonify({"error": "O valor do Pix deve ser um número válido."}), 400
 
+
     if not company_username:
         return jsonify({"error": "Nome de usuário da empresa é obrigatório para gerar Pix"}), 400
-
-    if not sale_id: # NOVO: Validação para o sale_id
+    
+    # NOVO: Validação para o sale_id
+    if not sale_id:
         return jsonify({"error": "ID da venda (sale_id) é obrigatório para gerar Pix."}), 400
 
     user = users_db.get(company_username)
@@ -992,6 +994,7 @@ def delete_company_user():
 
     # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
     app_id = os.getenv("APP_ID", "local-app-id")
+    # A linha abaixo estava com 'user_id_to_update' em vez de 'user_id_to_delete'
     user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_delete)
 
     try:
