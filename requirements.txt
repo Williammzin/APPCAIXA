@@ -4,4 +4,4 @@ python-dotenv==1.0.0
 requests==2.31.0
 firebase-admin==6.2.0
 google-cloud-firestore==2.11.1
-gunicorn
+gunicorn==22.0.0 # Adicione esta linha (ou a versão mais recente)

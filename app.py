@@ -837,5 +837,8 @@ def delete_company_user():
 
 # --- Execução do Aplicativo ---
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # Em produção, o Gunicorn ou outro servidor WSGI será usado para rodar o app.
+    # Para desenvolvimento local, você pode usar:
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
 
