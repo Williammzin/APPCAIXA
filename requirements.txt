@@ -1,5 +1,6 @@
-Flask==3.0.3
-Flask-Cors==4.0.1
-python-dotenv==1.0.1
-firebase-admin
-requests # Para futura integração com Mercado Pago
+Flask==2.3.3
+Flask-Cors==3.0.10
+python-dotenv==1.0.0
+requests==2.31.0
+firebase-admin==6.2.0
+google-cloud-firestore==2.11.1

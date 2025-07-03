@@ -8,6 +8,7 @@ import uuid # Para gerar IDs de usuário temporários
 from dotenv import load_dotenv # Para carregar variáveis de ambiente
 import requests # Importa a biblioteca requests para fazer chamadas HTTP
 from functools import wraps # Para criar decoradores
+import json # Adicionado para lidar com JSON da variável de ambiente
 
 # Importa o Firebase Admin SDK
 import firebase_admin
@@ -17,41 +18,40 @@ from firebase_admin import credentials, auth, firestore # Adicionado firestore
 load_dotenv()
 
 # --- Inicialização do Firebase Admin SDK ---
-# O caminho para a chave da conta de serviço está no .env
-service_account_key_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_PATH")
+# O conteúdo da chave da conta de serviço agora será lido de uma variável de ambiente
+service_account_json_content = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_JSON")
 
-# Verifica se o caminho da chave de serviço foi definido
-if not service_account_key_path:
-    print("ERRO: Variável de ambiente FIREBASE_SERVICE_ACCOUNT_KEY_PATH não definida no .env")
-    print("Por favor, defina o caminho para o seu arquivo JSON de chave de conta de serviço do Firebase.")
-    # Em um ambiente de produção, você não continuaria. Para desenvolvimento, podemos simular.
-    # exit(1) # Descomente para forçar a saída se a chave não for encontrada
 
-# Verifica se o arquivo da chave de serviço existe
-if not os.path.exists(service_account_key_path):
-    print(f"ERRO: Arquivo de chave de conta de serviço do Firebase não encontrado em: {service_account_key_path}")
-    print("Por favor, verifique se o caminho está correto e se o arquivo JSON foi movido para a pasta do backend.")
-    # exit(1) # Descomente para forçar a saída se a chave não for encontrada
+# Verifica se o conteúdo da chave de serviço foi definido
+if not service_account_json_content:
+    print("ERRO: Variável de ambiente FIREBASE_SERVICE_ACCOUNT_KEY_JSON não definida.")
+    raise ValueError("FIREBASE_SERVICE_ACCOUNT_KEY_JSON environment variable is not set.")
+
+# Corrige o campo private_key para conter quebras de linha reais
+# Isso é necessário porque o JSON lido de uma variável de ambiente pode ter '\n' escapado como '\\n'
+service_account_dict = json.loads(service_account_json_content)
+if "private_key" in service_account_dict:
+    service_account_dict["private_key"] = service_account_dict["private_key"].replace("\\n", "\n")
 
 try:
-    # Inicializa o Firebase Admin SDK com a chave da conta de serviço
-    cred = credentials.Certificate(service_account_key_path)
+    # Carrega as credenciais diretamente do conteúdo JSON da variável de ambiente
+    cred = credentials.Certificate(service_account_dict)
     firebase_admin.initialize_app(cred)
     db = firestore.client() # Inicializa o cliente Firestore
-    print("Firebase Admin SDK inicializado com sucesso.")
+    print("Firebase Admin SDK inicializado com sucesso usando variável de ambiente.")
 except Exception as e:
     print(f"ERRO ao inicializar Firebase Admin SDK: {e}")
-    print("Verifique se o caminho da chave de serviço está correto e se o arquivo é válido.")
-    # Se a inicialização falhar, o aplicativo pode não conseguir gerar tokens personalizados.
+    print("Verifique se o conteúdo JSON da variável de ambiente está correto e é válido.")
+    raise # Re-lança a exceção para que o aplicativo não inicie com Firebase inválido.
 
 # Inicializa o aplicativo Flask
 app = Flask(__name__)
 
-# Habilita o CORS (Cross-Origin Resource Sharing)
-CORS(app)
-
-# --- Variáveis de ambiente para chaves de API (EXEMPLO) ---
-# MERCADO_PAGO_ACCESS_TOKEN agora será armazenado por empresa no users_db
+# --- Configuração do CORS ---
+# Permite requisições do seu frontend Netlify e do ambiente de desenvolvimento local.
+# Substitua 'https://dainty-mochi-6412f2.netlify.app' pela URL real do seu frontend no Netlify.
+# Se você tiver outras URLs de frontend, adicione-as à lista.
+CORS(app, origins=["http://localhost:5000", "https://dainty-mochi-6412f2.netlify.app"])
 
 # --- Banco de dados simples em memória (para demonstração) ---
 # users_db agora armazenará informações de empresas/administradores de empresas
@@ -60,7 +60,6 @@ CORS(app)
 # ou para dados que são mais eficientes de manter em memória para acesso rápido.
 # A fonte da verdade para dados de empresas (para listagem no frontend) será o Firestore.
 users_db = {} # Armazena 'admin' e 'company_admin' (para login rápido)
-# payment_plans_db removido
 
 # Define alguns temas de design padrão (para demonstração)
 # Em um cenário real, você poderia carregar isso de um banco de dados
@@ -164,6 +163,7 @@ if "admin" not in users_db:
 
 # Carrega as empresas do Firestore após a inicialização do Firebase Admin SDK
 # e após a criação do usuário 'admin' padrão.
+# AQUI ESTÁ A CORREÇÃO: load_companies_from_firestore() é chamado APÓS a inicialização do 'db'
 load_companies_from_firestore()
 
 # Adiciona usuários de empresa de exemplo para teste (apenas em memória, para demonstração)
@@ -298,7 +298,7 @@ def register_company():
         company_doc_ref.set(company_data_for_firestore)
         print(f"Dados da empresa '{company_username}' salvos no Firestore.")
 
-        # 4. Atualiza o users_db em memória (para uso imediato no login, embora Firestore seja a fonte primária)
+        # 4. Atualiza o users_db em memória (para uso imediato no login, embora Firestore é a fonte primária)
         users_db[company_username] = company_data_for_firestore
 
         print(f"Empresa registrada: {company_name} com nome de usuário: {company_username} (Tema: {design_theme}, Token MP: {mercado_pago_access_token}).")
@@ -321,7 +321,7 @@ def register_company():
                 auth.delete_user(user_record.uid)
                 print(f"Rollback: Usuário Firebase Auth '{user_record.uid}' deletado devido a erro no registro da empresa.")
         except Exception as rollback_e:
-            print(f"ERRO no rollback do Firebase Auth: {rollback_e}")
+                print(f"ERRO no rollback do Firebase Auth: {rollback_e}")
         return jsonify({"error": f"Erro ao registrar empresa: {e}"}), 500
 
 @app.route('/login', methods=['POST'])
@@ -796,8 +796,12 @@ def delete_company_user():
     if not user_id_to_delete:
         return jsonify({"error": "ID do usuário é obrigatório"}), 400
 
+    if user_id_to_delete == request.current_user_uid: # Impede que um admin da empresa exclua a si mesmo
+        return jsonify({"error": "Você não pode excluir seu próprio usuário."}), 403
+
     # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
     app_id = os.getenv("APP_ID", "local-app-id")
+    # Correção: Usar user_id_to_delete em vez de user_id_to_update
     user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_delete)
 
     try:
@@ -834,3 +838,4 @@ def delete_company_user():
 # --- Execução do Aplicativo ---
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
