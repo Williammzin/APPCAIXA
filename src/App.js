@@ -38,7 +38,7 @@ const App = () => {
     const [total, setTotal] = useState(0);
     const [paymentAmount, setPaymentAmount] = useState('');
     const [change, setChange] = useState(0);
-    const [difference, setDifference] = useState(0); // CORREÇÃO: Declarado como estado usando useState
+    const [difference, setDifference] = useState(0);
     const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
     const [sales, setSales] = useState([]);
     // Atualizado: 'caixa', 'produtos', 'relatorios', 'gerenciar_empresas', 'gerenciar_usuarios'
@@ -260,24 +260,49 @@ const App = () => {
             return;
         }
 
-        if (paymentMethod === 'Dinheiro') {
-            if (parseFloat(paymentAmount) < total) {
-                showMessage("Valor pago insuficiente!", "error");
-                return;
-            }
-        } else if (paymentMethod === 'Pix') {
-            setIsLoadingPix(true);
-            setPixQrCodeData(null); // Limpa dados Pix anteriores
-            try {
-                // Certifica-se de que currentUser e currentUser.username existem
-                if (!currentUser || !currentUser.username) {
-                    showMessage("Erro: Usuário da empresa não identificado para gerar Pix.", "error");
-                    setIsLoadingPix(false);
-                    return;
-                }
+        // NOVO: Calcular o custo total dos produtos vendidos (CPV)
+        const costOfGoodsSold = cart.reduce((sum, item) => sum + ((item.cost || 0) * item.quantity), 0);
 
-                // NOVO: Gerar um ID de venda único para este pagamento Pix
-                const saleId = doc(collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`)).id;
+        // Prepara os dados básicos da venda
+        const baseSaleData = {
+            items: cart.map(item => ({
+                productId: item.id,
+                name: item.name,
+                value: item.value,
+                cost: item.cost || 0,
+                quantity: item.quantity
+            })),
+            total: total,
+            costOfGoodsSold: costOfGoodsSold,
+            profit: total - costOfGoodsSold,
+            paymentMethod: paymentMethod,
+            paymentAmount: parseFloat(paymentAmount) || 0,
+            change: change,
+            timestamp: new Date(),
+            userId: currentUser.username
+        };
+
+        let saleId = null; // Para armazenar o ID da venda gerado
+
+        try {
+            // Lógica para Pix
+            if (paymentMethod === 'Pix') {
+                setIsLoadingPix(true);
+                setPixQrCodeData(null); // Limpa dados Pix anteriores
+
+                // 1. Gera um ID de venda único ANTES de qualquer chamada ao backend
+                saleId = doc(collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`)).id;
+
+                // 2. Cria o documento de venda no Firestore com status 'pending'
+                // Isso garante que o documento exista para ser atualizado pelo webhook
+                const pixSaleData = {
+                    ...baseSaleData,
+                    status: 'pending', // Status inicial para Pix
+                    payment_id: null, // Será preenchido após a resposta do MP
+                    sale_id_frontend: saleId // Salva o ID gerado pelo frontend
+                };
+                await setDoc(doc(db, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId), pixSaleData);
+                showMessage("Iniciando pagamento Pix. Aguardando QR Code...", "info");
 
                 // Obtém o ID Token do Firebase do usuário logado
                 const idToken = await auth.currentUser.getIdToken();
@@ -286,18 +311,18 @@ const App = () => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${idToken}` // Envia o ID Token para autenticação no backend
+                        'Authorization': `Bearer ${idToken}`
                     },
                     body: JSON.stringify({
                         amount: total.toFixed(2),
                         description: "Pagamento de Venda",
-                        sale_id: saleId, // Envia o ID da venda para o backend
-                        // company_username: currentUser.username // Não é mais necessário enviar aqui, o backend pega do token
+                        // Passa o saleId gerado pelo frontend como external_reference
+                        external_reference: saleId,
                     }),
                 });
 
                 const data = await response.json();
-                console.log("Dados Pix recebidos do backend:", data); // Log para inspecionar os dados
+                console.log("Dados Pix recebidos do backend:", data);
 
                 if (response.ok) {
                     // Adiciona o prefixo data:image/png;base64, se ainda não tiver
@@ -305,55 +330,61 @@ const App = () => {
                         data.qr_code_base64 = 'data:image/png;base64,' + data.qr_code_base64;
                     }
                     setPixQrCodeData(data);
-                    showMessage("QR Code Pix gerado com sucesso!", "success");
-                    // Não finaliza a venda no Firestore aqui, espera a confirmação do pagamento Pix
-                    // Em um app real, você teria um webhook para confirmar o pagamento
+                    showMessage("QR Code Pix gerado com sucesso! Aguardando pagamento...", "success");
+
+                    // 3. Atualiza o documento de venda no Firestore com o payment_id do Mercado Pago
+                    // Isso é crucial para que o webhook possa encontrar e atualizar
+                    await updateDoc(doc(db, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId), {
+                        payment_id: data.payment_id // Salva o ID do pagamento do Mercado Pago
+                    });
+
+                    // Não limpa o carrinho aqui, pois a venda ainda está pendente.
+                    // A limpeza ocorrerá quando o webhook confirmar o pagamento.
+
                 } else {
+                    // Se houver erro ao gerar Pix, remove a venda pendente criada
+                    if (saleId) {
+                        await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId));
+                    }
                     showMessage(`Erro ao gerar Pix: ${data.error || 'Erro desconhecido'}`, "error");
                 }
-            } catch (error) {
-                console.error('Erro ao gerar Pix:', error);
-                showMessage('Erro ao conectar ao servidor para gerar Pix.', 'error');
-            } finally {
-                setIsLoadingPix(false);
+            } else {
+                // Lógica para Dinheiro e Cartão (sem Pix)
+                // Adiciona a venda diretamente ao Firestore com status 'completed'
+                const finalSaleData = {
+                    ...baseSaleData,
+                    status: 'completed' // Status final para Dinheiro/Cartão
+                };
+                await addDoc(collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`), finalSaleData);
+                showMessage("Venda finalizada com sucesso!");
             }
-            return; // Retorna para que a venda não seja finalizada no Firestore ainda
-        }
 
-        // Lógica para finalizar a venda no Firestore (para Dinheiro e Cartão)
-        // NOVO: Calcular o custo total dos produtos vendidos (CPV)
-        const costOfGoodsSold = cart.reduce((sum, item) => sum + ((item.cost || 0) * item.quantity), 0);
+            // Limpa o carrinho e reinicia os estados APENAS se a venda não for Pix ou se o Pix for gerado com sucesso
+            // Para Pix, a limpeza do carrinho será feita pelo webhook (ou um polling no frontend)
+            // A condição foi ajustada para evitar erro de 'response is not defined'
+            if (paymentMethod !== 'Pix' || (paymentMethod === 'Pix' && pixQrCodeData)) { // Verifica se pixQrCodeData foi preenchido
+                setCart([]);
+                setPaymentAmount('');
+                setChange(0);
+                setDifference(0);
+                setPaymentMethod('Dinheiro');
+                setPixQrCodeData(null);
+            }
 
-        const saleData = {
-            items: cart.map(item => ({
-                productId: item.id,
-                name: item.name,
-                value: item.value,
-                cost: item.cost || 0, // Garante que o custo seja salvo
-                quantity: item.quantity
-            })),
-            total: total,
-            costOfGoodsSold: costOfGoodsSold, // NOVO: Salva o CPV
-            profit: total - costOfGoodsSold, // NOVO: Salva o lucro por venda
-            paymentMethod: paymentMethod,
-            paymentAmount: parseFloat(paymentAmount) || 0,
-            change: change,
-            timestamp: new Date(),
-            userId: currentUser.username // Usa o username do Flask como userId para o Firestore
-        };
-
-        try {
-            await addDoc(collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`), saleData);
-            showMessage("Venda finalizada com sucesso!");
-            setCart([]);
-            setPaymentAmount('');
-            setChange(0);
-            setDifference(0);
-            setPaymentMethod('Dinheiro');
-            setPixQrCodeData(null); // Limpa dados Pix se a venda for finalizada por outro método
         } catch (e) {
-            console.error("Erro ao adicionar documento: ", e);
-            showMessage("Erro ao finalizar venda.", "error");
+            console.error("Erro ao finalizar venda ou gerar Pix:", e);
+            showMessage("Erro ao finalizar venda ou gerar Pix.", "error");
+            // Se a venda foi criada mas o Pix falhou, tenta remover
+            if (saleId && paymentMethod === 'Pix') {
+                try {
+                    await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId));
+                    console.log("Venda pendente removida após erro na geração do Pix.");
+                } catch (deleteError) {
+                    console.error("Erro ao remover venda pendente após falha na geração do Pix:", deleteError);
+                }
+            }
+        } finally {
+            setIsLoadingPix(false);
         }
     };
 
