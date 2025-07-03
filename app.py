@@ -51,7 +51,7 @@ app = Flask(__name__)
 # Permite requisições do seu frontend Netlify e do ambiente de desenvolvimento local.
 # Substitua 'https://dainty-mochi-6412f2.netlify.app' pela URL real do seu frontend no Netlify.
 # Se você tiver outras URLs de frontend, adicione-as à lista.
-CORS(app, origins=["http://localhost:5000", "https://dainty-mochi-6412f2.netlify.app"])
+CORS(app, origins=["http://localhost:5000", "https://appcaixa.netlify.app"])
 
 # --- Tratador de Erro 404 Personalizado (NOVO) ---
 @app.errorhandler(404)
