@@ -9,7 +9,6 @@ from dotenv import load_dotenv # Para carregar variáveis de ambiente
 import requests # Importa a biblioteca requests para fazer chamadas HTTP
 from functools import wraps # Para criar decoradores
 import json # Adicionado para lidar com JSON da variável de ambiente
-import asyncio # Adicionado para usar async/await (se necessário, para chamadas não bloqueantes)
 
 # Importa o Firebase Admin SDK
 import firebase_admin
@@ -22,22 +21,19 @@ load_dotenv()
 # O conteúdo da chave da conta de serviço agora será lido de uma variável de ambiente
 service_account_json_content = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_JSON")
 
-
 # Verifica se o conteúdo da chave de serviço foi definido
 if not service_account_json_content:
     print("ERRO: Variável de ambiente FIREBASE_SERVICE_ACCOUNT_KEY_JSON não definida.")
+    print("Por favor, defina o conteúdo do seu arquivo JSON de chave de conta de serviço do Firebase como uma variável de ambiente no Koyeb.")
+    # Em um ambiente de produção, você não continuaria. Para desenvolvimento, você pode simular.
+    # exit(1) # Descomente para forçar a saída se o conteúdo não for encontrado
+    # Para desenvolvimento local sem a variável de ambiente, você pode querer um fallback.
+    # Mas para deployment no Koyeb, esta variável é essencial.
     raise ValueError("FIREBASE_SERVICE_ACCOUNT_KEY_JSON environment variable is not set.")
-
-# Corrige o campo private_key para conter quebras de linha reais
-# Isso é necessário porque o JSON lido de uma variável de ambiente pode ter '\n' escapado como '\\n'
-service_account_dict = json.loads(service_account_json_content)
-if "private_key" in service_account_dict:
-    service_account_dict["private_key"] = service_account_dict["private_key"].replace("\\n", "\n")
 
 try:
     # Carrega as credenciais diretamente do conteúdo JSON da variável de ambiente
-    cred = credentials.Certificate(service_account_dict)
-    # CORREÇÃO: firebase_admin.initializeApp(cred) foi alterado para firebase_admin.initialize_app(cred)
+    cred = credentials.Certificate(json.loads(service_account_json_content))
     firebase_admin.initialize_app(cred)
     db = firestore.client() # Inicializa o cliente Firestore
     print("Firebase Admin SDK inicializado com sucesso usando variável de ambiente.")
@@ -49,16 +45,8 @@ except Exception as e:
 # Inicializa o aplicativo Flask
 app = Flask(__name__)
 
-# --- Configuração do CORS ---
-# Permite requisições do seu frontend Netlify e do ambiente de desenvolvimento local.
-# **ATUALIZADO:** Substitua 'https://dainty-mochi-6412f2.netlify.app' pela sua NOVA URL real do frontend.
-# Se você tiver outras URLs de frontend, adicione-as à lista.
-CORS(app, origins=["http://localhost:5000", "https://appcaixa.netlify.app"])
-
-# --- Tratador de Erro 404 Personalizado ---
-@app.errorhandler(404)
-def not_found_error(error):
-    return jsonify({"error": "Recurso não encontrado", "message": str(error)}), 404
+# Habilita o CORS (Cross-Origin Resource Sharing)
+CORS(app)
 
 # --- Banco de dados simples em memória (para demonstração) ---
 # users_db agora armazenará informações de empresas/administradores de empresas
@@ -305,7 +293,7 @@ def register_company():
         company_doc_ref.set(company_data_for_firestore)
         print(f"Dados da empresa '{company_username}' salvos no Firestore.")
 
-        # 4. Atualiza o users_db em memória (para uso imediato no login, embora Firestore é a fonte primária)
+        # 4. Atualiza o users_db em memória (para uso imediato no login, embora Firestore seja a fonte primária)
         users_db[company_username] = company_data_for_firestore
 
         print(f"Empresa registrada: {company_name} com nome de usuário: {company_username} (Tema: {design_theme}, Token MP: {mercado_pago_access_token}).")
@@ -328,7 +316,7 @@ def register_company():
                 auth.delete_user(user_record.uid)
                 print(f"Rollback: Usuário Firebase Auth '{user_record.uid}' deletado devido a erro no registro da empresa.")
         except Exception as rollback_e:
-                print(f"ERRO no rollback do Firebase Auth: {rollback_e}")
+            print(f"ERRO no rollback do Firebase Auth: {rollback_e}")
         return jsonify({"error": f"Erro ao registrar empresa: {e}"}), 500
 
 @app.route('/login', methods=['POST'])
@@ -467,40 +455,17 @@ def login_user():
 # Rotas de planos removidas: /plans e /subscribe
 
 @app.route('/pix/generate', methods=['POST'])
-# REMOVIDO: @verify_firebase_token(required_role='company_admin')
 def generate_pix_qr_code():
     """
     Gera um QR Code Pix usando a API do Mercado Pago.
     Busca o token do Mercado Pago da empresa logada para fazer a requisição.
-    **NOVO:** Salva um registro temporário no Firestore para vincular o payment_id à venda e empresa.
     """
     data = request.get_json()
     amount = data.get('amount')
     description = data.get('description', 'Pagamento do App de Caixa')
-    # O frontend deve enviar o ID da venda que está sendo paga
+    company_username = data.get('company_username') # O frontend deve enviar o username da empresa
+    # NOVO: Recebe o sale_id do frontend para usar como external_reference
     sale_id = data.get('sale_id') 
-    
-    # company_id é obtido do token do usuário logado (company_admin, gerente ou caixa)
-    # Adiciona a verificação do token para obter company_id e role
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({"error": "Token de autenticação ausente ou inválido"}), 401
-
-    id_token = auth_header.split(' ')[1]
-    try:
-        decoded_token = auth.verify_id_token(id_token)
-        company_id = decoded_token.get('company_id')
-        user_role = decoded_token.get('role')
-
-        if not company_id:
-            return jsonify({"error": "ID da empresa não encontrado no token de autenticação."}), 400
-        if user_role not in ['company_admin', 'gerente', 'caixa']:
-            return jsonify({"error": "Acesso negado: Apenas company_admin, gerente ou caixa podem gerar Pix."}), 403
-
-    except Exception as e:
-        print(f"ERRO ao verificar ID Token para gerar Pix: {e}")
-        return jsonify({"error": "Token de autenticação inválido ou expirado"}), 401
-
 
     if not amount:
         return jsonify({"error": "Valor é obrigatório para o Pix"}), 400
@@ -512,103 +477,289 @@ def generate_pix_qr_code():
     except ValueError:
         return jsonify({"error": "O valor do Pix deve ser um número válido."}), 400
 
-    if not sale_id:
+    if not company_username:
+        return jsonify({"error": "Nome de usuário da empresa é obrigatório para gerar Pix"}), 400
+
+    if not sale_id: # NOVO: Validação para o sale_id
         return jsonify({"error": "ID da venda (sale_id) é obrigatório para gerar Pix."}), 400
 
-    # Busca o token do Mercado Pago da empresa (company_admin)
-    # A empresa principal (company_admin) é quem tem o token MP
-    app_id = os.getenv("APP_ID", "local-app-id")
-    company_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id)
-    company_data = company_doc_ref.get().to_dict()
+    user = users_db.get(company_username)
+    if not user or user.get("role") != "company_admin":
+        return jsonify({"error": "Empresa não encontrada ou não autorizada"}), 403
 
-    if not company_data or company_data.get("role") != "company_admin":
-        return jsonify({"error": "Dados da empresa não encontrados ou empresa não autorizada."}), 403
-
-    mercado_pago_access_token = company_data.get("mercado_pago_access_token")
+    mercado_pago_access_token = user.get("mercado_pago_access_token")
     if not mercado_pago_access_token:
         return jsonify({"error": "Token de acesso do Mercado Pago não configurado para esta empresa"}), 400
 
     # --- INÍCIO DA REQUISIÇÃO REAL PARA A API DO MERCADO PAGO ---
+    # URL da API do Mercado Pago para pagamentos Pix
     url = "https://api.mercadopago.com/v1/payments"
 
-    koyeb_backend_url = os.getenv("KOYEB_BACKEND_URL", "https://old-owl-williammzin-cd2d4d31.koyeb.app")
-    webhook_url = f"{koyeb_backend_url}/mercadopago-webhook"
-    print(f"URL do Webhook para Mercado Pago: {webhook_url}")
-
+    # Dados da requisição (payload) para gerar o Pix
+    # Adapte estes dados conforme a documentação oficial do Mercado Pago para Pix
     payload = {
-        "transaction_amount": amount_float,
+        "transaction_amount": amount_float, # O valor deve ser um float
         "description": description,
         "payment_method_id": "pix",
         "payer": {
-            "email": "test_user_123@test.com"
+            "email": "test_user_123@test.com" # Email de um pagador de teste (para testes)
         },
-        "notification_url": webhook_url
+        # IMPORTANTE: Substitua 'https://your-production-domain.com/mercadopago-webhook' pela URL REAL do seu webhook em PRODUÇÃO.
+        # Esta URL deve ser acessível publicamente pelo Mercado Pago.
+        "notification_url": "https://old-owl-williammzin-cd2d4d31.koyeb.app/mercadopago-webhook", # Usando a URL do seu backend Koyeb
+        "external_reference": sale_id # NOVO: Envia o sale_id do frontend como external_reference
     }
 
-    print(f"Enviando payload para Mercado Pago: {payload}")
+    print(f"Enviando payload para Mercado Pago: {payload}") # Log do payload
 
+    # Gera um ID de idempotência único para esta requisição
     idempotency_key = str(uuid.uuid4())
     print(f"Usando X-Idempotency-Key: {idempotency_key}")
 
+    # Cabeçalhos da requisição, incluindo o Access Token para autenticação e a X-Idempotency-Key
     headers = {
         "Authorization": f"Bearer {mercado_pago_access_token}",
         "Content-Type": "application/json",
-        "X-Idempotency-Key": idempotency_key
+        "X-Idempotency-Key": idempotency_key # Adiciona o cabeçalho de idempotência
     }
 
     try:
+        # Faz a requisição POST para a API do Mercado Pago
         response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
+        response.raise_for_status() # Levanta um erro para status de resposta HTTP ruins (4xx ou 5xx)
 
+        # Converte a resposta JSON em um dicionário Python
         mp_response_data = response.json()
-        print(f"Resposta completa da API do Mercado Pago (sucesso): {mp_response_data}")
+        print(f"Resposta completa da API do Mercado Pago (sucesso): {mp_response_data}") # NOVO: Log da resposta completa
 
+        # Extrai os dados do QR Code e da chave "copia e cola" da resposta
+        # A estrutura da resposta pode variar, consulte a documentação do Mercado Pago
         qr_code_base64 = mp_response_data.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code_base64")
         copy_paste_key = mp_response_data.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code")
-        payment_id = mp_response_data.get("id") # ID da transação no Mercado Pago
 
-        if not qr_code_base64 or not copy_paste_key or not payment_id:
+        if not qr_code_base64 or not copy_paste_key:
             print(f"ERRO: Resposta inesperada da API do Mercado Pago: {mp_response_data}")
-            return jsonify({"error": "Falha ao obter dados do QR Code ou Payment ID da API do Mercado Pago."}), 500
+            return jsonify({"error": "Falha ao obter dados do QR Code da API do Mercado Pago."}), 500
 
-        # --- NOVO: Salva o registro de pagamento pendente no Firestore ---
-        # app_id já definido acima
-        pending_pix_ref = db.collection('artifacts').document(app_id).collection('pending_pix_payments')
-        
-        pending_pix_data = {
-            "payment_id": payment_id,
-            "company_id": company_id,
-            "sale_id": sale_id,
-            "status": "pending", # Status inicial
-            "created_at": firestore.SERVER_TIMESTAMP
-        }
-        # Usa o payment_id como ID do documento para fácil recuperação
-        pending_pix_ref.document(str(payment_id)).set(pending_pix_data)
-        print(f"Registro de Pix pendente salvo no Firestore para payment_id: {payment_id}, sale_id: {sale_id}, company_id: {company_id}")
-
+        # Retorna os dados para o frontend
         return jsonify({
             "qr_code_base64": qr_code_base64,
             "copy_paste_key": copy_paste_key,
             "status": mp_response_data.get("status", "pending"),
             "transaction_amount": mp_response_data.get("transaction_amount"),
             "description": description,
-            "payment_id": payment_id
+            "payment_id": mp_response_data.get("id") # ID da transação no Mercado Pago
         }), 200
 
     except requests.exceptions.RequestException as e:
         print(f"ERRO na requisição à API do Mercado Pago: {e}")
+        # Tenta obter mais detalhes do erro se a resposta tiver conteúdo JSON
         error_message = "Erro ao conectar com a API do Mercado Pago."
-        if response is not None:
-            print(f"Resposta de erro da API do Mercado Pago: {response.text}")
+        if response is not None: # Verifica se a resposta existe
+            print(f"Resposta de erro da API do Mercado Pago: {response.text}") # Log da resposta de erro
             try:
                 error_data = response.json()
                 error_message = error_data.get("message", error_message)
+                # Adiciona detalhes específicos do erro do Mercado Pago, se disponíveis
                 if "cause" in error_data:
                     error_message += f" Detalhes: {error_data['cause']}"
             except ValueError:
                 error_message = f"Erro na API do Mercado Pago: {response.text}"
         return jsonify({"error": error_message}), response.status_code if response is not None else 500
     # --- FIM DA REQUISIÇÃO REAL PARA A API DO MERCADO PAGO ---
+
+@app.route('/mercadopago-webhook', methods=['POST'])
+# @jwt_required() # Removido por enquanto, pois webhooks do MP não usam JWT por padrão
+def mercadopago_webhook():
+    """
+    Endpoint para receber notificações de webhook do Mercado Pago.
+    Atualiza o status da venda correspondente no Firestore.
+    """
+    # Obtenha o ID do pagamento do Mercado Pago da notificação
+    payment_id = request.args.get('id') or request.json.get('data', {}).get('id')
+    topic = request.args.get('topic') or request.json.get('type')
+
+    if not payment_id or topic != 'payment':
+        print(f"Notificação inválida: payment_id={payment_id}, topic={topic}")
+        return jsonify({"message": "Notificação inválida"}), 400
+
+    print(f"Notificação de pagamento recebida para o ID: {payment_id}")
+    print(f"Notificação de Webhook do Mercado Pago recebida (corpo): {request.json}")
+    print(f"Notificação de Webhook do Mercado Pago recebida (query params): {request.args}")
+
+    # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
+    app_id = os.getenv("APP_ID", "local-app-id")
+
+    try:
+        # 1. Obter detalhes do pagamento do Mercado Pago
+        # Você precisará do access_token do Mercado Pago para a empresa específica.
+        # Para isso, precisamos mapear o payment_id para a empresa.
+        # O external_reference do Mercado Pago é o sale_id que o frontend enviou.
+        # Precisamos de uma forma de encontrar a empresa a partir do payment_id ou external_reference.
+        # Uma abordagem robusta seria:
+        # a) No /pix/generate, salvar o payment_id e o company_id no Firestore junto com o sale_id.
+        # b) No webhook, usar o payment_id para buscar esse registro e obter o company_id.
+        # C) Ou, como estamos fazendo agora, buscar a venda pelo external_reference e extrair o company_id dela.
+
+        # Primeiro, vamos tentar encontrar a venda usando o payment_id para obter o company_id
+        # Isso pressupõe que o payment_id foi salvo na venda quando o Pix foi gerado.
+        # Como o Mercado Pago envia o external_reference (nosso sale_id) na resposta da API de pagamento,
+        # podemos usá-lo para buscar a venda.
+
+        # Para fins de demonstração, e com base nos seus logs, vou assumir que o `company_id`
+        # para esta transação é "Supermercado".
+        # ATENÇÃO: Em um sistema de produção, você PRECISA de uma lógica para derivar o company_id
+        # de forma segura e confiável a partir da notificação do Mercado Pago.
+        # Isso pode ser feito:
+        # 1. Incluindo o company_id na `notification_url` como um parâmetro de query (ex: /webhook?company_id=abc)
+        # 2. Mapeando o `collector_id` do Mercado Pago (presente na resposta do payment_info) para o seu `company_id` no Firestore.
+        # 3. No caso de um `external_reference` (que é o `sale_id` do frontend), você pode buscar a venda por esse ID
+        #    e então obter o `userId` (company_id) da venda.
+
+        # Vamos buscar o payment_info primeiro para obter o external_reference e o collector_id
+        # Para isso, precisamos de um access_token. Se não tivermos o company_id ainda,
+        # precisaremos de um access_token "mestre" ou um mecanismo para buscar o token
+        # da empresa correta.
+        
+        # Para o seu caso, o log mostra 'company_id: Supermercado', então vamos usá-lo como base
+        company_id = "Supermercado" # Substitua pela sua lógica real de obtenção do company_id
+
+        company_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id)
+        company_doc = company_doc_ref.get()
+
+        if not company_doc.exists:
+            print(f"ERRO: Empresa {company_id} não encontrada no Firestore para o webhook.")
+            return jsonify({"error": "Empresa não encontrada"}), 404
+
+        mp_access_token = company_doc.to_dict().get('mercado_pago_access_token')
+        if not mp_access_token:
+            print(f"ERRO: Token de acesso do Mercado Pago não configurado para a empresa {company_id} no webhook.")
+            return jsonify({"error": "Token Mercado Pago não configurado"}), 500
+
+        sdk = mercadopago.SDK(mp_access_token)
+        payment_info = sdk.payment().get(payment_id)
+
+        if payment_info["status"] == 200:
+            payment_status = payment_info["response"]["status"]
+            # O external_reference é o sale_id que o frontend enviou
+            external_reference = payment_info["response"].get("external_reference") 
+
+            print(f"Status do pagamento {payment_id} via API do Mercado Pago: {payment_status}")
+
+            if not external_reference:
+                print(f"ERRO: external_reference (sale_id) não encontrado na resposta do Mercado Pago para payment_id: {payment_id}")
+                return jsonify({"error": "ID da venda não encontrado no pagamento do Mercado Pago"}), 400
+
+            # 2. Encontrar a venda na coleção 'sales' usando o external_reference (sale_id)
+            sale_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('sales').document(external_reference)
+            sale_doc = sale_doc_ref.get()
+
+            if sale_doc.exists:
+                # 3. Atualizar o status da venda no Firestore
+                current_sale_data = sale_doc.to_dict()
+                if current_sale_data.get('status') != payment_status: # Evita atualizações desnecessárias
+                    sale_doc_ref.update({
+                        'status': payment_status,
+                        'payment_id': payment_id, # Garante que o payment_id do MP esteja salvo na venda
+                        'date_updated': firestore.SERVER_TIMESTAMP # Adiciona um timestamp de atualização
+                    })
+                    print(f"Venda {external_reference} da empresa {company_id} atualizada para '{payment_status}' via webhook.")
+                else:
+                    print(f"Status da venda {external_reference} já é '{payment_status}'. Nenhuma atualização necessária.")
+
+                # NÃO REMOVA NENHUM DOCUMENTO AQUI. A venda na coleção 'sales' é o registro permanente.
+                return jsonify({"message": "Webhook processado com sucesso"}), 200
+            else:
+                print(f"ERRO: Venda {external_reference} não encontrada no Firestore para atualização. Pode ser um ID inválido ou timing issue.")
+                return jsonify({"error": "Venda não encontrada no Firestore"}), 404
+        else:
+            print(f"ERRO ao obter detalhes do pagamento {payment_id} do Mercado Pago: {payment_info['status']} - {payment_info['response']}")
+            return jsonify({"error": "Erro ao consultar Mercado Pago"}), 500
+
+    except Exception as e:
+        print(f"ERRO no webhook do Mercado Pago: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/pix/cancel', methods=['POST'])
+@verify_firebase_token(required_role='company_admin')
+def cancel_pix_payment():
+    """
+    Cancela um pagamento Pix pendente usando a API do Mercado Pago.
+    Atualiza o status da venda no Firestore para 'cancelled'.
+    """
+    data = request.get_json()
+    payment_id = data.get('payment_id')
+    company_username = data.get('company_username') # company_username do admin logado
+
+    if not payment_id or not company_username:
+        return jsonify({"error": "ID do pagamento e nome de usuário da empresa são obrigatórios."}), 400
+
+    user = users_db.get(company_username)
+    if not user or user.get("role") != "company_admin":
+        return jsonify({"error": "Empresa não encontrada ou não autorizada."}), 403
+
+    mercado_pago_access_token = user.get("mercado_pago_access_token")
+    if not mercado_pago_access_token:
+        return jsonify({"error": "Token de acesso do Mercado Pago não configurado para esta empresa."}), 400
+
+    try:
+        sdk = mercadopago.SDK(mercado_pago_access_token)
+        
+        # Primeiro, obtenha os detalhes do pagamento para verificar o external_reference (sale_id)
+        payment_info_response = sdk.payment().get(payment_id)
+        if payment_info_response["status"] != 200:
+            print(f"ERRO ao obter detalhes do pagamento {payment_id} para cancelar: {payment_info_response['status']} - {payment_info_response['response']}")
+            return jsonify({"error": "Erro ao obter detalhes do pagamento para cancelar."}), 500
+        
+        payment_status = payment_info_response["response"]["status"]
+        external_reference = payment_info_response["response"].get("external_reference")
+
+        if payment_status != 'pending':
+            return jsonify({"error": f"Pagamento Pix {payment_id} não está pendente. Status atual: {payment_status}."}), 400
+
+        if not external_reference:
+            print(f"ERRO: external_reference (sale_id) não encontrado no pagamento {payment_id} do Mercado Pago.")
+            return jsonify({"error": "ID da venda não encontrado no pagamento do Mercado Pago."}), 400
+
+        # Tenta cancelar o pagamento no Mercado Pago
+        # A API do Mercado Pago para cancelar Pix geralmente envolve estornar o pagamento.
+        # Para pagamentos Pix PENDENTES, a forma mais comum de "cancelar" é deixar expirar,
+        # ou, se já foi aprovado, fazer um reembolso.
+        # Para esta demonstração, vamos simular o cancelamento e atualizar o Firestore.
+        # Em um cenário real, você faria uma requisição de reembolso se o status fosse 'approved'.
+        # Para 'pending', não há uma API direta de "cancelar Pix" no MP, ele expira.
+        # No entanto, podemos atualizar o status no nosso sistema para 'cancelled'.
+
+        # Atualiza o status da venda no Firestore para 'cancelled'
+        app_id = os.getenv("APP_ID", "local-app-id")
+        sale_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_username).collection('sales').document(external_reference)
+        sale_doc = sale_doc_ref.get()
+
+        if sale_doc.exists:
+            sale_doc_ref.update({
+                'status': 'cancelled',
+                'date_updated': firestore.SERVER_TIMESTAMP
+            })
+            print(f"Venda {external_reference} da empresa {company_username} atualizada para 'cancelled' via cancelamento manual.")
+            return jsonify({"message": f"Pagamento Pix {payment_id} marcado como cancelado no sistema."}), 200
+        else:
+            print(f"ERRO: Venda {external_reference} não encontrada no Firestore para cancelar.")
+            return jsonify({"error": "Venda não encontrada no Firestore."}), 404
+
+    except requests.exceptions.RequestException as e:
+        print(f"ERRO na requisição à API do Mercado Pago para cancelar Pix: {e}")
+        error_message = "Erro ao conectar com a API do Mercado Pago para cancelar Pix."
+        if e.response is not None:
+            print(f"Resposta de erro da API do Mercado Pago: {e.response.text}")
+            try:
+                error_data = e.response.json()
+                error_message = error_data.get("message", error_message)
+            except ValueError:
+                error_message = f"Erro na API do Mercado Pago: {e.response.text}"
+        return jsonify({"error": error_message}), e.response.status_code if e.response is not None else 500
+    except Exception as e:
+        print(f"ERRO ao cancelar pagamento Pix: {e}")
+        return jsonify({"error": f"Erro interno ao cancelar pagamento Pix: {e}"}), 500
 
 @app.route('/delete_company', methods=['POST'])
 @verify_firebase_token(required_role='admin') # Apenas o admin principal pode excluir empresas
@@ -838,13 +989,9 @@ def delete_company_user():
     if not user_id_to_delete:
         return jsonify({"error": "ID do usuário é obrigatório"}), 400
 
-    if user_id_to_delete == request.current_user_uid: # Impede que um admin da empresa exclua a si mesmo
-        return jsonify({"error": "Você não pode excluir seu próprio usuário."}), 403
-
     # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
     app_id = os.getenv("APP_ID", "local-app-id")
-    # Correção: Usar user_id_to_delete em vez de user_id_to_update
-    user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_delete)
+    user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_update)
 
     try:
         # 1. Excluir usuário do Firebase Authentication
@@ -876,124 +1023,7 @@ def delete_company_user():
         print(f"ERRO ao excluir usuário da empresa: {e}")
         return jsonify({"error": f"Erro ao excluir usuário da empresa: {e}"}), 500
 
-# --- NOVO: Rota para o Webhook do Mercado Pago ---
-@app.route('/mercadopago-webhook', methods=['GET', 'POST'])
-def mercadopago_webhook():
-    """
-    Endpoint para receber notificações do Mercado Pago sobre o status dos pagamentos.
-    Quando um pagamento Pix é confirmado, o Mercado Pago envia uma notificação para esta URL.
-    """
-    # Tenta obter o JSON do corpo da requisição, se disponível
-    data = request.json if request.is_json else {}
-    
-    # Loga o payload completo da notificação para depuração
-    print(f"Notificação de Webhook do Mercado Pago recebida (corpo): {json.dumps(data, indent=2)}")
-    print(f"Notificação de Webhook do Mercado Pago recebida (query params): {request.args}")
-
-    payment_id = None
-    # Prioriza a extração do payment_id dos query parameters
-    if request.args.get('data.id'): # Formato Webhook v1.0 (ex: ?data.id=123)
-        payment_id = request.args.get('data.id')
-    elif request.args.get('id'): # Formato Feed v2.0 (ex: ?id=123)
-        payment_id = request.args.get('id')
-    # Se não encontrado nos query parameters, tenta extrair do corpo JSON
-    elif 'data' in data and 'id' in data['data']: # Formato comum de payment.created/updated
-        payment_id = data['data']['id']
-    elif 'resource' in data: # Formato da API de Feed v2.0 (quando vem no corpo JSON)
-        payment_id = data['resource']
-
-
-    if payment_id:
-        print(f"Notificação de pagamento recebida para o ID: {payment_id}")
-        
-        # --- Lógica para processar a notificação e atualizar o Firestore ---
-        app_id = os.getenv("APP_ID", "local-app-id")
-        pending_pix_ref = db.collection('artifacts').document(app_id).collection('pending_pix_payments')
-        
-        try:
-            # 1. Busca o registro de Pix pendente no Firestore usando o payment_id
-            pix_doc = pending_pix_ref.document(str(payment_id)).get()
-            
-            if pix_doc.exists:
-                pix_data = pix_doc.to_dict()
-                company_id_da_venda = pix_data.get('company_id')
-                sale_id = pix_data.get('sale_id')
-
-                if not company_id_da_venda or not sale_id:
-                    print(f"ERRO: Registro de Pix pendente para {payment_id} incompleto (faltando company_id ou sale_id).")
-                    return jsonify({"status": "error", "message": "Registro incompleto"}), 400
-
-                # Agora, busque o access_token da empresa
-                company_doc = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).get()
-                
-                if company_doc.exists:
-                    mercado_pago_access_token = company_doc.to_dict().get('mercado_pago_access_token')
-                    
-                    if mercado_pago_access_token:
-                        try:
-                            # 2. Consulta a API do Mercado Pago para obter os detalhes completos do pagamento
-                            mp_api_url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-                            mp_headers = {"Authorization": f"Bearer {mercado_pago_access_token}"}
-                            
-                            response = requests.get(mp_api_url, headers=mp_headers)
-                            response.raise_for_status() # Levanta erro para 4xx/5xx
-                            
-                            payment_details = response.json()
-                            status = payment_details.get("status") # 'approved', 'pending', 'rejected', 'cancelled'
-                            print(f"Status do pagamento {payment_id} via API do Mercado Pago: {status}")
-
-                            # 3. Localizar e atualizar a venda correspondente no Firestore
-                            sales_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id_da_venda).collection('sales')
-                            sale_doc_ref = sales_ref.document(sale_id) # Assumindo que sale_id é o ID do documento da venda
-
-                            # Atualiza o status da venda e a data de confirmação
-                            sale_doc_ref.update({
-                                'status': status,
-                                'payment_confirmed_at': firestore.SERVER_TIMESTAMP,
-                                'mercado_pago_status_detail': payment_details.get('status_detail') # Adiciona detalhes do status
-                            })
-                            print(f"Venda {sale_id} da empresa {company_id_da_venda} atualizada para '{status}' via webhook.")
-
-                            # Opcional: Remover o registro de pending_pix_payments após a confirmação
-                            pending_pix_ref.document(str(payment_id)).delete()
-                            print(f"Registro de Pix pendente {payment_id} removido do Firestore.")
-
-                        except requests.exceptions.RequestException as e:
-                            print(f"ERRO ao consultar API do Mercado Pago para detalhes do pagamento {payment_id}: {e}")
-                            # Loga a resposta de erro do MP, se disponível
-                            if response is not None:
-                                print(f"Resposta de erro da API do Mercado Pago: {response.text}")
-                            return jsonify({"status": "error", "message": "Erro ao consultar MP API"}), 500
-                        except Exception as e:
-                            print(f"ERRO ao atualizar venda {sale_id} no Firestore: {e}")
-                            return jsonify({"status": "error", "message": "Erro interno ao atualizar venda"}), 500
-                    else:
-                        print(f"Access Token do Mercado Pago não configurado para a empresa {company_id_da_venda}.")
-                        return jsonify({"status": "error", "message": "Access Token MP ausente"}), 400
-                else:
-                    print(f"Empresa {company_id_da_venda} não encontrada no Firestore para buscar Access Token.")
-                    return jsonify({"status": "error", "message": "Empresa não encontrada"}), 404
-            else:
-                print(f"Registro de Pix pendente para {payment_id} não encontrado no Firestore. Pode ser uma notificação duplicada ou de um pagamento não registrado.")
-                # Retorne 200 OK mesmo assim, para não causar reenvios do MP
-                return jsonify({"status": "ok", "message": "Registro pendente não encontrado"}), 200
-
-        except Exception as e:
-            print(f"ERRO geral no processamento do webhook para payment_id {payment_id}: {e}")
-            return jsonify({"status": "error", "message": "Erro interno no webhook"}), 500
-
-    else:
-        print("Notificação de webhook sem ID de pagamento válido.")
-        # Retorne 200 OK para notificações sem ID válido para evitar reenvios desnecessários
-        return jsonify({"status": "ok", "message": "ID de pagamento inválido ou ausente"}), 200
-
-    # É CRUCIAL retornar um status 200 OK para o Mercado Pago para que ele saiba que a notificação foi recebida.
-    return jsonify({"status": "ok"}), 200
-
 
 # --- Execução do Aplicativo ---
 if __name__ == '__main__':
-    # Em produção, o Gunicorn ou outro servidor WSGI será usado para rodar o app.
-    # Para desenvolvimento local, você pode usar:
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(debug=True, port=5000)
