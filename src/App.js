@@ -26,6 +26,61 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
 // ATENÇÃO: SUBSTITUA 'https://old-owl-williammzin-cd2d4d31.koyeb.app' PELA URL REAL DO SEU BACKEND KOYEB!
 const FLASK_BACKEND_URL = 'https://old-owl-williammzin-cd2d4d31.koyeb.app';
 
+// Default themes in case currentUser.design is not available or incomplete
+const DEFAULT_THEMES = {
+    default: {
+        gradient_from: 'from-blue-50',
+        gradient_to: 'to-indigo-100',
+        primary_button_bg: 'bg-blue-600',
+        primary_button_hover_bg: 'hover:bg-blue-700',
+        secondary_button_bg: 'bg-gray-200',
+        secondary_button_text: 'text-gray-700',
+        secondary_button_hover_bg: 'hover:bg-gray-100',
+        text_color_strong: 'text-gray-800',
+        text_color_medium: 'text-gray-700',
+        border_color: 'border-blue-200',
+        highlight_color: 'text-blue-600',
+        success_color: 'bg-green-500',
+        error_color: 'bg-red-500',
+        font_family: 'font-sans',
+        dominant_color: 'bg-blue-50' // Used for table headers, etc.
+    },
+    corporate: {
+        gradient_from: 'from-gray-100',
+        gradient_to: 'to-gray-200',
+        primary_button_bg: 'bg-purple-700',
+        primary_button_hover_bg: 'hover:bg-purple-800',
+        secondary_button_bg: 'bg-gray-300',
+        secondary_button_text: 'text-gray-800',
+        secondary_button_hover_bg: 'hover:bg-gray-400',
+        text_color_strong: 'text-gray-900',
+        text_color_medium: 'text-gray-700',
+        border_color: 'border-purple-300',
+        highlight_color: 'text-purple-700',
+        success_color: 'bg-green-600',
+        error_color: 'bg-red-600',
+        font_family: 'font-serif',
+        dominant_color: 'bg-purple-100'
+    },
+    vibrant: {
+        gradient_from: 'from-pink-100',
+        gradient_to: 'to-yellow-100', // Corrigido de 'to' para 'gradient_to'
+        primary_button_bg: 'bg-pink-500',
+        primary_button_hover_bg: 'hover:bg-pink-600',
+        secondary_button_bg: 'bg-yellow-200',
+        secondary_button_text: 'text-yellow-800',
+        secondary_button_hover_bg: 'hover:bg-yellow-300',
+        text_color_strong: 'text-purple-900',
+        text_color_medium: 'text-purple-700',
+        border_color: 'border-pink-300',
+        highlight_color: 'text-orange-500',
+        success_color: 'bg-lime-500',
+        error_color: 'bg-rose-500',
+        font_family: 'font-mono',
+        dominant_color: 'bg-pink-50'
+    }
+};
+
 // Confirm Modal Component
 const ConfirmModal = ({ message, onConfirm, onCancel }) => {
     return (
@@ -65,7 +120,7 @@ const App = () => {
     const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
     const [sales, setSales] = useState([]);
     const [activeTab, setActiveTab] = useState('caixa');
-    const [newProductName, setNewProductName] = useState('');
+    const [newProductName, setNewProductName] = '';
     const [newProductValue, setNewProductValue] = '';
     const [newProductCost, setNewProductCost] = '';
     const [newProductId, setNewProductId] = '';
@@ -96,7 +151,7 @@ const App = () => {
     // NOVOS ESTADOS para Gerenciar Usuários da Empresa (para company_admin)
     const [companyUsers, setCompanyUsers] = useState([]); // Lista de usuários da empresa
     const [newCompanyUserUsername, setNewCompanyUserUsername] = useState('');
-    const [newCompanyUserPassword, setNewCompanyUserPassword] = useState('');
+    const [newCompanyUserPassword, setNewCompanyUserPassword] = '';
     const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
     const [editingCompanyUser, setEditingCompanyUser] = null;
 
@@ -971,6 +1026,39 @@ const App = () => {
     // Log the state of isLoggedIn and currentUser right before conditional rendering
     console.log("Before rendering: isLoggedIn =", isLoggedIn, "currentUser =", currentUser);
 
+    // Função auxiliar para obter classes Tailwind de forma segura
+    const getThemeClasses = (element) => {
+        // Use currentDesign diretamente, que já tem o fallback
+        const theme = currentUser?.design || DEFAULT_THEMES.default;
+
+        const getColorClass = (prop, defaultColor) => {
+            const color = theme[prop];
+            if (color && typeof color === 'string' && color.includes('-')) {
+                return color; // Já é uma classe Tailwind completa como 'bg-blue-500'
+            }
+            // Fallback para uma classe de cor Tailwind padrão
+            return defaultColor;
+        };
+
+        switch (element) {
+            case 'gradient_bg': return `bg-gradient-to-br ${getColorClass('gradient_from', 'from-blue-50')} ${getColorClass('gradient_to', 'to-indigo-100')}`;
+            case 'primary_button_bg': return getColorClass('primary_button_bg', 'bg-blue-600');
+            case 'primary_button_hover_bg': return getColorClass('primary_button_hover_bg', 'hover:bg-blue-700');
+            case 'secondary_button_bg': return getColorClass('secondary_button_bg', 'bg-gray-200');
+            case 'secondary_button_text': return getColorClass('secondary_button_text', 'text-gray-700');
+            case 'secondary_button_hover_bg': return getColorClass('secondary_button_hover_bg', 'hover:bg-gray-100');
+            case 'text_color_strong': return getColorClass('text_color_strong', 'text-gray-800');
+            case 'text_color_medium': return getColorClass('text_color_medium', 'text-gray-700');
+            case 'border_color': return getColorClass('border_color', 'border-blue-200');
+            case 'highlight_color': return getColorClass('highlight_color', 'text-blue-600');
+            case 'success_color': return getColorClass('success_color', 'bg-green-500');
+            case 'error_color': return getColorClass('error_color', 'bg-red-500');
+            case 'font_family': return theme.font_family || 'font-sans';
+            case 'dominant_color_bg': return getColorClass('dominant_color', 'bg-blue-50');
+            default: return '';
+        }
+    };
+
 
     // Renderiza a tela de login se o usuário não estiver logado
     if (!isLoggedIn) {
@@ -993,7 +1081,7 @@ const App = () => {
                 <div className="absolute z-10 w-full h-full bg-black opacity-50"></div>
 
                 {message && (
-                    <div className={`fixed top-4 right-4 p-3 rounded-lg shadow-lg text-white z-50 transition-opacity duration-300 ${message.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                    <div className={`fixed top-4 right-4 p-3 rounded-lg shadow-lg text-white z-50 transition-opacity duration-300 ${message.type === 'success' ? getThemeClasses('success_color') : getThemeClasses('error_color')}`}>
                         {message.text}
                     </div>
                 )}
@@ -1045,7 +1133,7 @@ const App = () => {
     }
 
     // Renderiza o aplicativo principal se o usuário estiver logado
-    const currentDesign = currentUser?.design || {}; // Garante que currentDesign não é nulo
+    const currentDesign = currentUser?.design || DEFAULT_THEMES.default; // Garante que currentDesign não é nulo
 
     // Determina se o vídeo de fundo da aba "Gerenciar Empresas" deve ser ativo
     const showCompanyManagementVideo = isLoggedIn && activeTab === 'gerenciar_empresas' && currentUser?.role === 'admin';
@@ -1057,7 +1145,7 @@ const App = () => {
 
     return (
         <div
-            className={`min-h-screen p-4 ${currentDesign.font_family || 'font-sans'} flex flex-col items-center relative`}
+            className={`min-h-screen p-4 ${getThemeClasses('font_family')} flex flex-col items-center relative`}
         >
             {/* Vídeo de Fundo Condicional para a aba "Gerenciar Empresas" */}
             {showCompanyManagementVideo && (
@@ -1103,12 +1191,12 @@ const App = () => {
 
                 {/* Message Box */}
                 {message && (
-                    <div className={`fixed top-4 right-4 p-3 rounded-lg shadow-lg text-white z-50 transition-opacity duration-300 ${message.type === 'success' ? currentDesign.success_color : currentDesign.error_color}`}>
+                    <div className={`fixed top-4 right-4 p-3 rounded-lg shadow-lg text-white z-50 transition-opacity duration-300 ${message.type === 'success' ? getThemeClasses('success_color') : getThemeClasses('error_color')}`}>
                         {message.text}
                     </div>
                 )}
 
-                <h1 className={`text-4xl font-extrabold ${currentDesign.text_color_strong || 'text-gray-800'} mb-8 mt-4 rounded-xl p-3 bg-white shadow-lg`}>
+                <h1 className={`text-4xl font-extrabold ${getThemeClasses('text_color_strong')} mb-8 mt-4 rounded-xl p-3 bg-white shadow-lg`}>
                     Gerenciador de Caixa
                 </h1>
 
@@ -1118,7 +1206,7 @@ const App = () => {
                     {(currentUser.role === 'company_admin' || currentUser.role === 'gerente' || currentUser.role === 'caixa') && (
                         <button
                             onClick={() => setActiveTab('caixa')}
-                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'caixa' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'caixa' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
                             Caixa
                         </button>
@@ -1127,7 +1215,7 @@ const App = () => {
                     {(currentUser.role === 'company_admin' || currentUser.role === 'gerente') && (
                         <button
                             onClick={() => setActiveTab('produtos')}
-                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'produtos' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'produtos' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
                             Produtos
                         </button>
@@ -1136,7 +1224,7 @@ const App = () => {
                     {(currentUser.role === 'company_admin' || currentUser.role === 'gerente') && (
                         <button
                             onClick={() => setActiveTab('relatorios')}
-                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'relatorios' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'relatorios' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
                             Relatórios
                         </button>
@@ -1145,7 +1233,7 @@ const App = () => {
                     {currentUser.role === 'company_admin' && (
                         <button
                             onClick={() => setActiveTab('gerenciar_usuarios')}
-                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_usuarios' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_usuarios' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
                             Gerenciar Usuários
                         </button>
@@ -1154,7 +1242,7 @@ const App = () => {
                     {currentUser.role === 'admin' && (
                         <button
                             onClick={() => setActiveTab('gerenciar_empresas')}
-                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_empresas' ? `${currentDesign.primary_button_bg} text-white shadow-lg` : `${currentDesign.secondary_button_bg} ${currentDesign.secondary_button_text} ${currentDesign.secondary_button_hover_bg}`}`}
+                            className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_empresas' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
                             Gerenciar Empresas
                         </button>
@@ -1166,7 +1254,7 @@ const App = () => {
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full max-w-7xl">
                         {/* Products List */}
                         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-xl">
-                            <h2 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            <h2 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
                                 Produtos Disponíveis
                             </h2>
                             {/* Barra de Pesquisa */}
@@ -1186,8 +1274,8 @@ const App = () => {
                                     filteredProducts.map(product => (
                                         <div key={product.id} className="flex justify-between items-center bg-gray-50 p-3 mb-2 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'}`}>{product.name} (ID: {product.id})</p>
-                                                <p className={`${currentDesign.highlight_color || 'text-blue-600'} font-bold`}>R$ {product.value.toFixed(2)}</p>
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')}`}>{product.name} (ID: {product.id})</p>
+                                                <p className={`${getThemeClasses('highlight_color')} font-bold`}>R$ {product.value.toFixed(2)}</p>
                                             </div>
                                             <button
                                                 onClick={() => addToCart(product)}
@@ -1203,7 +1291,7 @@ const App = () => {
 
                         {/* Cart and Payment */}
                         <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-xl flex flex-col">
-                            <h2 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                            <h2 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
                                 Carrinho de Compras
                             </h2>
                             <div className="flex-grow max-h-80 overflow-y-auto mb-4">
@@ -1213,7 +1301,7 @@ const App = () => {
                                     cart.map(item => (
                                         <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 mb-2 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'}`}>{item.name}</p>
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')}`}>{item.name}</p>
                                                 <p className="text-gray-600">R$ {item.value.toFixed(2)} x {item.quantity}</p>
                                             </div>
                                             <div className="flex items-center space-x-2">
@@ -1242,14 +1330,14 @@ const App = () => {
                                 )}
                             </div>
 
-                            <div className={`mt-auto pt-4 border-t-2 ${currentDesign.border_color || 'border-blue-200'}`}>
-                                <div className={`flex justify-between items-center text-2xl font-bold ${currentDesign.text_color_strong || 'text-gray-800'} mb-4`}>
+                            <div className={`mt-auto pt-4 border-t-2 ${getThemeClasses('border_color')}`}>
+                                <div className={`flex justify-between items-center text-2xl font-bold ${getThemeClasses('text_color_strong')} mb-4`}>
                                     <span>Total:</span>
                                     <span>R$ {total.toFixed(2)}</span>
                                 </div>
 
                                 <div className="mb-4">
-                                    <label htmlFor="paymentMethod" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} text-lg font-semibold mb-2`}>Método de Pagamento:</label>
+                                    <label htmlFor="paymentMethod" className={`block ${getThemeClasses('text_color_medium')} text-lg font-semibold mb-2`}>Método de Pagamento:</label>
                                     <select
                                         id="paymentMethod"
                                         value={paymentMethod}
@@ -1267,7 +1355,7 @@ const App = () => {
 
                                 {paymentMethod === 'Dinheiro' && (
                                     <div className="mb-4">
-                                        <label htmlFor="paymentAmount" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} text-lg font-semibold mb-2`}>Valor Pago:</label>
+                                        <label htmlFor="paymentAmount" className={`block ${getThemeClasses('text_color_medium')} text-lg font-semibold mb-2`}>Valor Pago:</label>
                                         <input
                                             type="number"
                                             id="paymentAmount"
@@ -1345,18 +1433,18 @@ const App = () => {
                                     </div>
                                 )}
 
-                                <div className={`flex justify-between items-center text-xl ${currentDesign.text_color_medium || 'text-gray-700'} mb-2`}>
+                                <div className={`flex justify-between items-center text-xl ${getThemeClasses('text_color_medium')} mb-2`}>
                                     <span>Diferença:</span>
                                     <span className="font-bold text-red-600">R$ {difference.toFixed(2)}</span>
                                 </div>
-                                <div className={`flex justify-between items-center text-xl ${currentDesign.text_color_medium || 'text-gray-700'} mb-4`}>
+                                <div className={`flex justify-between items-center text-xl ${getThemeClasses('text_color_medium')} mb-4`}>
                                     <span>Troco:</span>
                                     <span className="font-bold text-green-600">R$ {change.toFixed(2)}</span>
                                 </div>
 
                                 <button
                                     onClick={finalizeSale}
-                                    className={`w-full ${currentDesign.primary_button_bg || 'bg-blue-600'} ${currentDesign.primary_button_hover_bg || 'hover:bg-blue-700'} text-white text-xl font-bold py-4 rounded-xl transition-all duration-300 shadow-lg transform hover:scale-105`}
+                                    className={`w-full ${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white text-xl font-bold py-4 rounded-xl transition-all duration-300 shadow-lg transform hover:scale-105`}
                                 >
                                     Finalizar Venda
                                 </button>
@@ -1368,12 +1456,12 @@ const App = () => {
                 {/* Products Tab Content (Visível para company_admin e gerente) */}
                 {(activeTab === 'produtos' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente')) && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
-                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
                             {editingProduct ? 'Editar Produto' : 'Adicionar Novo Produto'}
                         </h2>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div>
-                                <label htmlFor="newProductId" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>ID do Produto:</label>
+                                <label htmlFor="newProductId" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>ID do Produto:</label>
                                 <input
                                     type="text"
                                     id="newProductId"
@@ -1385,7 +1473,7 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newProductName" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome do Produto:</label>
+                                <label htmlFor="newProductName" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome do Produto:</label>
                                 <input
                                     type="text"
                                     id="newProductName"
@@ -1396,7 +1484,7 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newProductValue" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Valor (R$):</label>
+                                <label htmlFor="newProductValue" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Valor (R$):</label>
                                 <input
                                     type="number"
                                     id="newProductValue"
@@ -1409,7 +1497,7 @@ const App = () => {
                             </div>
                             {/* Campo para o Custo do Produto */}
                             <div>
-                                <label htmlFor="newProductCost" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Custo (R$):</label>
+                                <label htmlFor="newProductCost" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Custo (R$):</label>
                                 <input
                                     type="number"
                                     id="newProductCost"
@@ -1440,14 +1528,14 @@ const App = () => {
                             ) : (
                                 <button
                                     onClick={handleAddProduct}
-                                    className={`${currentDesign.primary_button_bg || 'bg-blue-600'} ${currentDesign.primary_button_hover_bg || 'hover:bg-blue-700'} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                    className={`${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                 >
                                     Adicionar Produto
                                 </button>
                             )}
                         </div>
 
-                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
                             Lista de Produtos
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
@@ -1458,8 +1546,8 @@ const App = () => {
                                     {products.map(product => (
                                         <li key={product.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'} text-lg`}>Produto: {product.name} (ID: {product.id})</p>
-                                                <p className={`${currentDesign.highlight_color || 'text-blue-600'} font-bold text-xl`}>R$ {product.value.toFixed(2)}</p>
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Produto: {product.name} (ID: {product.id})</p>
+                                                <p className={`${getThemeClasses('highlight_color')} font-bold text-xl`}>R$ {product.value.toFixed(2)}</p>
                                                 <p className="text-gray-600 text-sm">Custo: R$ {product.cost ? product.cost.toFixed(2) : '0.00'}</p>
                                             </div>
                                             <div className="flex space-x-3">
@@ -1487,7 +1575,7 @@ const App = () => {
                 {/* Reports Tab Content (Visível para company_admin e gerente) */}
                 {(activeTab === 'relatorios' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente')) && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
-                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
                             Relatório de Lucro Semanal
                         </h2>
                         {sales.length === 0 ? (
@@ -1495,7 +1583,7 @@ const App = () => {
                         ) : (
                             <div className="max-h-96 overflow-y-auto">
                                 <table className="min-w-full bg-white rounded-lg shadow-md">
-                                    <thead className={`${currentDesign.primary_button_bg || 'bg-blue-500'} text-white`}>
+                                    <thead className={`${getThemeClasses('primary_button_bg')} text-white`}>
                                         <tr>
                                             <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Data</th>
                                             <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Lucro Total</th>
@@ -1504,7 +1592,7 @@ const App = () => {
                                     <tbody className="divide-y divide-gray-200">
                                         {getWeeklySales().map(([date, profit]) => (
                                             <tr key={date} className="hover:bg-gray-50">
-                                                <td className={`py-3 px-4 ${currentDesign.text_color_strong || 'text-gray-800'}`}>
+                                                <td className={`py-3 px-4 ${getThemeClasses('text_color_strong')}`}>
                                                     {date}
                                                 </td>
                                                 <td className="py-3 px-4 text-green-600 font-bold">R$ {profit.toFixed(2)}</td>
@@ -1518,7 +1606,7 @@ const App = () => {
                             </div>
                         )}
 
-                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
                             Todas as Vendas
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
@@ -1526,7 +1614,7 @@ const App = () => {
                                 <p className="text-gray-500">Nenhuma venda registrada ainda.</p>
                             ) : (
                                 <table className="min-w-full bg-white rounded-lg shadow-md">
-                                    <thead className={`${currentDesign.primary_button_bg || 'bg-blue-500'} text-white`}>
+                                    <thead className={`${getThemeClasses('primary_button_bg')} text-white`}>
                                         <tr>
                                             <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Data/Hora</th>
                                             <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Itens</th>
@@ -1541,19 +1629,19 @@ const App = () => {
                                     <tbody className="divide-y divide-gray-200">
                                         {sales.map(sale => (
                                             <tr key={sale.id} className="hover:bg-gray-50">
-                                                <td className={`py-3 px-4 ${currentDesign.text_color_strong || 'text-gray-800'}`}>
+                                                <td className={`py-3 px-4 ${getThemeClasses('text_color_strong')}`}>
                                                     {sale.timestamp.toDate().toLocaleString('pt-BR')}
                                                 </td>
-                                                <td className={`py-3 px-4 ${currentDesign.text_color_medium || 'text-gray-700'}`}>
+                                                <td className={`py-3 px-4 ${getThemeClasses('text_color_medium')}`}>
                                                     {sale.items.map(item => (
                                                         <p key={item.productId}>{item.name} (x{item.quantity})</p>
                                                     ))}
                                                 </td>
                                                 <td className="py-3 px-4 text-green-600 font-bold">R$ {sale.total.toFixed(2)}</td>
                                                 <td className="py-3 px-4 text-gray-600">R$ {(sale.costOfGoodsSold || 0).toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-purple-600 font-bold">R$ {(sale.profit || (sale.total - (sale.costOfGoodsSold || 0))).toFixed(2)}</td>
-                                                <td className={`py-3 px-4 ${currentDesign.text_color_medium || 'text-gray-700'}`}>{sale.paymentMethod}</td>
-                                                <td className={`py-3 px-4 ${currentDesign.text_color_medium || 'text-gray-700'}`}>
+                                                <td className="py-3 px-4 text-purple-600 font-bold">R$ ${(sale.profit || (sale.total - (sale.costOfGoodsSold || 0))).toFixed(2)}</td>
+                                                <td className={`py-3 px-4 ${getThemeClasses('text_color_medium')}`}>{sale.paymentMethod}</td>
+                                                <td className={`py-3 px-4 ${getThemeClasses('text_color_medium')}`}>
                                                     {sale.paymentMethod === 'Pix' && sale.status === 'pending' ? (
                                                         <span className="text-yellow-600 font-semibold">Pendente</span>
                                                     ) : sale.paymentMethod === 'Pix' && sale.status === 'approved' ? (
@@ -1586,12 +1674,12 @@ const App = () => {
                 {/* Gerenciar Usuários Tab Content (Visível APENAS para company_admin) */}
                 {activeTab === 'gerenciar_usuarios' && currentUser.role === 'company_admin' && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
-                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
                             {editingCompanyUser ? 'Editar Usuário da Empresa' : 'Adicionar Novo Usuário da Empresa'}
                         </h2>
                         <form onSubmit={editingCompanyUser ? handleUpdateCompanyUser : handleAddCompanyUser} className="space-y-4 mb-8">
                             <div>
-                                <label htmlFor="newCompanyUserUsername" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome de Usuário:</label>
+                                <label htmlFor="newCompanyUserUsername" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome de Usuário:</label>
                                 <input
                                     type="text"
                                     id="newCompanyUserUsername"
@@ -1604,7 +1692,7 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyUserPassword" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Senha:</label>
+                                <label htmlFor="newCompanyUserPassword" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Senha:</label>
                                 <input
                                     type="password"
                                     id="newCompanyUserPassword"
@@ -1616,7 +1704,7 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyUserRole" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Função:</label>
+                                <label htmlFor="newCompanyUserRole" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Função:</label>
                                 <select
                                     id="newCompanyUserRole"
                                     value={newCompanyUserRole}
@@ -1649,7 +1737,7 @@ const App = () => {
                                 ) : (
                                     <button
                                         type="submit"
-                                        className={`${currentDesign.primary_button_bg || 'bg-blue-600'} ${currentDesign.primary_button_hover_bg || 'hover:bg-blue-700'} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
+                                        className={`${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                 >
                                         Adicionar Usuário
                                     </button>
@@ -1657,7 +1745,7 @@ const App = () => {
                             </div>
                         </form>
 
-                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
                             Usuários da Empresa
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
@@ -1668,7 +1756,7 @@ const App = () => {
                                     {companyUsers.map(user => (
                                         <li key={user.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'} text-lg`}>Usuário: {user.username}</p>
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Usuário: {user.username}</p>
                                                 <p className="text-gray-600 text-sm">Função: {user.role}</p>
                                                 {/* Opcional: Mostrar o firebase_uid para depuração */}
                                                 {/* <p className="text-gray-400 text-xs">UID: {user.firebase_uid}</p> */}
@@ -1698,12 +1786,12 @@ const App = () => {
                 {/* Gerenciar Empresas Tab Content (Visível APENAS para admin principal) */}
                 {activeTab === 'gerenciar_empresas' && currentUser.role === 'admin' && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
-                        <h2 className={`text-3xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mb-6 pb-3 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
                             Registrar Nova Empresa
                         </h2>
                         <form onSubmit={handleRegisterCompany} className="space-y-4 mb-8">
                             <div>
-                                <label htmlFor="newCompanyUsername" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome de Usuário da Empresa (ID):</label>
+                                <label htmlFor="newCompanyUsername" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome de Usuário da Empresa (ID):</label>
                                 <input
                                     type="text"
                                     id="newCompanyUsername"
@@ -1715,7 +1803,7 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyPassword" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Senha da Empresa:</label>
+                                <label htmlFor="newCompanyPassword" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Senha da Empresa:</label>
                                 <input
                                     type="password"
                                     id="newCompanyPassword"
@@ -1727,7 +1815,7 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyName" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Nome Completo da Empresa:</label>
+                                <label htmlFor="newCompanyName" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome Completo da Empresa:</label>
                                 <input
                                     type="text"
                                     id="newCompanyName"
@@ -1739,7 +1827,7 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyDesignTheme" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Tema de Design (Cores/Fontes):</label>
+                                <label htmlFor="newCompanyDesignTheme" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Tema de Design (Cores/Fontes):</label>
                                 <select
                                     id="newCompanyDesignTheme"
                                     value={newCompanyDesignTheme}
@@ -1752,7 +1840,7 @@ const App = () => {
                                 </select>
                             </div>
                             <div>
-                                <label htmlFor="newCompanyMercadoPagoAccessToken" className={`block ${currentDesign.text_color_medium || 'text-gray-700'} font-semibold mb-2`}>Token de Acesso Mercado Pago:</label>
+                                <label htmlFor="newCompanyMercadoPagoAccessToken" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Token de Acesso Mercado Pago:</label>
                                 <input
                                     type="text"
                                     id="newCompanyMercadoPagoAccessToken"
@@ -1773,7 +1861,7 @@ const App = () => {
                             </div>
                         </form>
 
-                        <h3 className={`text-2xl font-bold ${currentDesign.text_color_medium || 'text-gray-700'} mt-10 mb-4 pb-2 border-b-2 ${currentDesign.border_color || 'border-blue-200'}`}>
+                        <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
                             Empresas Registradas
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
@@ -1784,7 +1872,7 @@ const App = () => {
                                     {companies.map(company => (
                                         <li key={company.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${currentDesign.text_color_strong || 'text-gray-800'} text-lg`}>Nome: {company.company_name}</p>
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Nome: {company.company_name}</p>
                                                 <p className="text-gray-600 text-sm">Usuário (ID): {company.id}</p>
                                                 <p className="text-gray-600 text-sm">Tema: {company.design_theme}</p>
                                             </div>
