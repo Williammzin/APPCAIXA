@@ -58,7 +58,7 @@ const App = () => {
     const [newCompanyPassword, setNewCompanyPassword] = '';
     const [newCompanyName, setNewCompanyName] = useState('');
     const [newCompanyDesignTheme, setNewCompanyDesignTheme] = useState('default');
-    const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = useState('');
+    const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = '';
     const [companies, setCompanies] = useState([]);
 
     // Estados para a funcionalidade Pix
@@ -70,7 +70,7 @@ const App = () => {
 
     // NOVOS ESTADOS para Gerenciar Usuários da Empresa (para company_admin)
     const [companyUsers, setCompanyUsers] = useState([]); // Lista de usuários da empresa
-    const [newCompanyUserUsername, setNewCompanyUserUsername] = useState('');
+    const [newCompanyUserUsername, setNewCompanyUserUsername] = '';
     const [newCompanyUserPassword, setNewCompanyUserPassword] = '';
     const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
     const [editingCompanyUser, setEditingCompanyUser] = null;
@@ -91,6 +91,7 @@ const App = () => {
     // Firebase Authentication (agora usa o token personalizado do Flask)
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
+            console.log("Firebase Auth state changed. User:", user); // NOVO LOG
             if (user && isLoggedIn && currentUser && user.uid === currentUser.username) {
                 console.log("Firebase Auth state changed: User is logged in with UID:", user.uid);
             } else if (!user && isLoggedIn) {
@@ -104,7 +105,11 @@ const App = () => {
 
     // Firestore Listeners for Products, Sales, and Company Users (dependem do currentUser do Flask)
     useEffect(() => {
+        // NOVO LOG: Verifica o estado das dependências do useEffect
+        console.log("Firestore listeners useEffect triggered. isLoggedIn:", isLoggedIn, "currentUser:", currentUser);
+
         if (!isLoggedIn || !currentUser || !currentUser.username) {
+            console.log("Firestore listeners skipped: User not logged in or currentUser not set."); // NOVO LOG
             setProducts([]);
             setSales([]);
             setCompanyUsers([]); // Limpa usuários da empresa também
@@ -202,7 +207,11 @@ const App = () => {
 
     // Listener para carregar a lista de empresas (apenas para admin principal)
     useEffect(() => {
+        // NOVO LOG: Verifica o estado das dependências do useEffect
+        console.log("Companies listener useEffect triggered. isLoggedIn:", isLoggedIn, "currentUser:", currentUser);
+
         if (!isLoggedIn || !currentUser || currentUser.role !== 'admin') {
+            console.log("Companies listener skipped: User not logged in or not admin."); // NOVO LOG
             setCompanies([]);
             return;
         }
