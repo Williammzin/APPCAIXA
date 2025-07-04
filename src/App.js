@@ -1,11 +1,10 @@
-/* global __app_id */ // '__initial_auth_token' removido daqui
+/* global __app_id */
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, where, setDoc, getDoc } from 'firebase/firestore'; // 'getDocs' removido
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, where, setDoc, getDoc } from 'firebase/firestore';
 
 // Firebase configuration and initialization
-// Your specific Firebase project configuration is now hardcoded here for local development.
 const firebaseConfig = {
     apiKey: "AIzaSyDNIJRlw0mJP349owctGbO58VZWGa0LtQs",
     authDomain: "caixa-1bd0c.firebaseapp.com",
@@ -19,13 +18,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-// Removido: const storage = getStorage(app); // Inicializa o Firebase Storage
 
 // Global variables for app ID (from Canvas environment)
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
-// Removido: initialAuthToken não é usado e estava causando erro de compilação.
-// const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
 
 // URL base do seu backend Flask (AGORA APONTA PARA O KOYEB)
 // ATENÇÃO: SUBSTITUA 'https://old-owl-williammzin-cd2d4d31.koyeb.app' PELA URL REAL DO SEU BACKEND KOYEB!
@@ -36,12 +31,11 @@ const App = () => {
     const [products, setProducts] = useState([]);
     const [cart, setCart] = useState([]);
     const [total, setTotal] = useState(0);
-    const [paymentAmount, setPaymentAmount] = useState('');
+    const [paymentAmount, setPaymentAmount] = '';
     const [change, setChange] = useState(0);
     const [difference, setDifference] = useState(0);
     const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
     const [sales, setSales] = useState([]);
-    // Atualizado: 'caixa', 'produtos', 'relatorios', 'gerenciar_empresas', 'gerenciar_usuarios'
     const [activeTab, setActiveTab] = useState('caixa');
     const [newProductName, setNewProductName] = useState('');
     const [newProductValue, setNewProductValue] = '';
@@ -121,6 +115,15 @@ const App = () => {
         if (currentUser.role === 'company_admin' || currentUser.role === 'gerente') {
             const productsCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/products`);
             unsubscribeProducts = onSnapshot(productsCollectionRef, (snapshot) => {
+                // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
+                console.log("Firestore Products Snapshot received:", snapshot);
+                console.log("Firestore Products Snapshot.docs:", snapshot.docs);
+                if (!snapshot || !snapshot.docs) {
+                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para produtos. Isso não deveria acontecer com um snapshot válido do Firestore.");
+                    setProducts([]); // Garante que o estado seja limpo para evitar erros futuros
+                    return;
+                }
+                // --- FIM DEBUG ---
                 const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setProducts(productsData);
                 console.log("Produtos carregados com sucesso!");
@@ -138,6 +141,15 @@ const App = () => {
         if (currentUser.role === 'company_admin' || currentUser.role === 'gerente') {
             const salesCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`);
             unsubscribeSales = onSnapshot(salesCollectionRef, (snapshot) => {
+                // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
+                console.log("Firestore Sales Snapshot received:", snapshot);
+                console.log("Firestore Sales Snapshot.docs:", snapshot.docs);
+                if (!snapshot || !snapshot.docs) {
+                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para vendas. Isso não deveria acontecer com um snapshot válido do Firestore.");
+                    setSales([]);
+                    return;
+                }
+                // --- FIM DEBUG ---
                 const salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setSales(salesData);
                 console.log("Vendas carregadas com sucesso!");
@@ -156,6 +168,15 @@ const App = () => {
             const companyUsersCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/company_users`);
             console.log("Firestore Company Users Listener Path:", companyUsersCollectionRef.path); // NOVO LOG
             unsubscribeCompanyUsers = onSnapshot(companyUsersCollectionRef, (snapshot) => {
+                // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
+                console.log("Firestore Company Users Snapshot received:", snapshot);
+                console.log("Firestore Company Users Snapshot.docs:", snapshot.docs);
+                if (!snapshot || !snapshot.docs) {
+                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para usuários da empresa. Isso não deveria acontecer com um snapshot válido do Firestore.");
+                    setCompanyUsers([]);
+                    return;
+                }
+                // --- FIM DEBUG ---
                 const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setCompanyUsers(usersData);
                 console.log("Usuários da empresa carregados com sucesso!", usersData); // NOVO LOG
@@ -174,7 +195,7 @@ const App = () => {
             if (unsubscribeCompanyUsers) unsubscribeCompanyUsers();
             console.log("Firestore listeners for Products, Sales, and Company Users unsubscribed.");
         };
-    }, [isLoggedIn, currentUser]); // Removido 'appId' da dependência
+    }, [isLoggedIn, currentUser]);
 
     // Listener para carregar a lista de empresas (apenas para admin principal)
     useEffect(() => {
@@ -187,6 +208,15 @@ const App = () => {
         const q = query(companiesCollectionRef, where("role", "==", "company_admin"));
 
         const unsubscribeCompanies = onSnapshot(q, (snapshot) => {
+            // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
+            console.log("Firestore Companies Snapshot received:", snapshot);
+            console.log("Firestore Companies Snapshot.docs:", snapshot.docs);
+            if (!snapshot || !snapshot.docs) {
+                console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para empresas. Isso não deveria acontecer com um snapshot válido do Firestore.");
+                setCompanies([]);
+                return;
+            }
+            // --- FIM DEBUG ---
             const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setCompanies(companiesData);
             console.log("Empresas carregadas com sucesso!");
@@ -199,7 +229,7 @@ const App = () => {
             unsubscribeCompanies();
             console.log("Firestore listener for Companies unsubscribed.");
         };
-    }, [isLoggedIn, currentUser]); // Removido 'appId' da dependência
+    }, [isLoggedIn, currentUser]);
 
 
     // Calculate total whenever cart changes
@@ -316,7 +346,7 @@ const App = () => {
                     body: JSON.stringify({
                         amount: total.toFixed(2),
                         description: "Pagamento de Venda",
-                        company_username: currentUser.username, // <--- ADICIONADO AQUI
+                        company_username: currentUser.username,
                         sale_id: saleId,
                     }),
                 });
