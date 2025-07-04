@@ -1946,16 +1946,3 @@ const App = () => {
 };
 
 export default App;
-                        }
-                    }}
-                    onCancel={() => setShowConfirmModal(false)}
-                />
-            )}
-        </div>
-    );
-};
-
-export default App;
-};
-
-export default App;
