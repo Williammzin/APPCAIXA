@@ -105,7 +105,7 @@ const App = () => {
     const [total, setTotal] = useState(0);
     const [paymentAmount, setPaymentAmount] = '';
     const [change, setChange] = useState(0);
-    const [difference, setDifference] = 0;
+    const [difference, setDifference] = useState(0); // CORRIGIDO: useState(0)
     const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
     const [sales, setSales] = useState([]);
     const [activeTab, setActiveTab] = useState('caixa');
@@ -120,7 +120,7 @@ const App = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [currentUser, setCurrentUser] = useState(null); // Armazena { username, role, company_name, design }
     const [loginUsername, setLoginUsername] = useState('');
-    const [loginPassword, setLoginPassword] = useState('');
+    const [loginPassword, setLoginPassword] = '';
 
     // Estados para Gerenciar Empresas (para o admin principal)
     const [newCompanyUsername, setNewCompanyUsername] = useState('');
@@ -148,7 +148,7 @@ const App = () => {
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
     const [confirmModalAction, setConfirmModalAction] = useState(null); // Função a ser executada na confirmação
-    const [confirmModalPayload, setConfirmModalPayload] = null; // Payload para a função de confirmação
+    const [confirmModalPayload, setConfirmModalPayload] = useState(null); // Payload para a função de confirmação
 
     const messageTimeoutRef = useRef(null);
 
@@ -1683,7 +1683,7 @@ const App = () => {
                                                     ))}
                                                 </td>
                                                 <td className="py-3 px-4 text-green-600 font-bold">R$ {sale.total.toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-gray-600">R$ {(sale.costOfGoodsSold || 0).toFixed(2)}</td>
+                                                <td className="py-3 px-4 text-gray-600">R$ ${(sale.costOfGoodsSold || 0).toFixed(2)}</td>
                                                 <td className="py-3 px-4 text-purple-600 font-bold">R$ ${(sale.profit || (sale.total - (sale.costOfGoodsSold || 0))).toFixed(2)}</td>
                                                 <td className={`py-3 px-4 ${getThemeClasses('text_color_medium')}`}>{sale.paymentMethod}</td>
                                                 <td className={`py-3 px-4 ${getThemeClasses('text_color_medium')}`}>
