@@ -47,7 +47,7 @@ const App = () => {
     const [newProductValue, setNewProductValue] = '';
     const [newProductCost, setNewProductCost] = '';
     const [newProductId, setNewProductId] = '';
-    const [editingProduct, setEditingProduct] = useState(null);
+    const [editingProduct, setEditingProduct] = null;
     const [message, setMessage] = useState('');
 
     // Estados para autenticação via Flask backend
@@ -58,7 +58,7 @@ const App = () => {
 
     // Estados para Gerenciar Empresas (para o admin principal)
     const [newCompanyUsername, setNewCompanyUsername] = useState('');
-    const [newCompanyPassword, setNewCompanyPassword] = '';
+    const [newCompanyPassword, setNewCompanyPassword] = useState('');
     const [newCompanyName, setNewCompanyName] = useState('');
     const [newCompanyDesignTheme, setNewCompanyDesignTheme] = useState('default');
     const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = useState('');
@@ -74,9 +74,9 @@ const App = () => {
     // NOVOS ESTADOS para Gerenciar Usuários da Empresa (para company_admin)
     const [companyUsers, setCompanyUsers] = useState([]); // Lista de usuários da empresa
     const [newCompanyUserUsername, setNewCompanyUserUsername] = useState('');
-    const [newCompanyUserPassword, setNewCompanyUserPassword] = '';
+    const [newCompanyUserPassword, setNewCompanyUserPassword] = useState('');
     const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
-    const [editingCompanyUser, setEditingCompanyUser] = useState(null);
+    const [editingCompanyUser, setEditingCompanyUser] = null;
 
     const messageTimeoutRef = useRef(null);
 
@@ -316,7 +316,7 @@ const App = () => {
                     body: JSON.stringify({
                         amount: total.toFixed(2),
                         description: "Pagamento de Venda",
-                        // CORREÇÃO AQUI: Enviando como 'sale_id' em vez de 'external_reference'
+                        company_username: currentUser.username, // <--- ADICIONADO AQUI
                         sale_id: saleId,
                     }),
                 });
@@ -872,7 +872,7 @@ const App = () => {
             }
         } catch (error) {
             console.error('Erro ao conectar ao servidor para cancelar Pix:', error);
-            showMessage('Erro ao conectar ao servidor para cancelar Pix.', 'error');
+            showMessage('Erro ao conectar ao servidor para cancelar Pix.', "error");
         }
     };
 
