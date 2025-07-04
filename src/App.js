@@ -185,17 +185,7 @@ const App = () => {
                 showMessage("Erro ao carregar a configuração do Firebase.", "error");
             }
         } else {
-            console.warn("Variáveis __firebase_config ou __app_id não definidas. Usando configuração de fallback padrão.");
-            // Configuração de fallback para desenvolvimento local (SUBSTITUA PELA SUA CONFIGURAÇÃO REAL DO FIREBASE)
-            firebaseConfig = {
-                apiKey: "COLE_AQUI_SUA_API_KEY_REAL",
-                authDomain: "SEU_PROJECT_ID.firebaseapp.com",
-                projectId: "SEU_PROJECT_ID",
-                storageBucket: "SEU_PROJECT_ID.appspot.com",
-                messagingSenderId: "SEU_MESSAGING_SENDER_ID",
-                appId: "SEU_APP_ID",
-                measurementId: "SEU_MEASUREMENT_ID"
-            };
+            throw new Error("Firebase config não encontrada! Defina __firebase_config e __app_id no ambiente.");
         }
 
         if (firebaseConfig) {
@@ -1946,6 +1936,16 @@ const App = () => {
                     onConfirm={() => {
                         if (confirmModalAction) {
                             confirmModalAction(confirmModalPayload);
+                        }
+                    }}
+                    onCancel={() => setShowConfirmModal(false)}
+                />
+            )}
+        </div>
+    );
+};
+
+export default App;
                         }
                     }}
                     onCancel={() => setShowConfirmModal(false)}
