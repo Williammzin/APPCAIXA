@@ -21,11 +21,10 @@ load_dotenv()
 # --- Inicialização do Firebase Admin SDK ---
 # O conteúdo da chave da conta de serviço agora será lido de uma variável de ambiente
 service_account_json_content = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_JSON")
-print(f"Conteúdo completo lido de FIREBASE_SERVICE_ACCOUNT_KEY_JSON: {service_account_json_content}")
 
 # Verifica se o conteúdo da chave de serviço foi definido
 if not service_account_json_content:
-    print("ERRO: Variável de ambiente FIREBASE_SERVICE_ACCOUNT_KEY_JSON não definida.")
+    print("ERRO: Variável de ambiente FIREBASE_SERVICE_ACCOUNT_KEY_JSON NÃO ESTÁ DEFINIDA.")
     print("Por favor, defina o conteúdo do seu arquivo JSON de chave de conta de serviço do Firebase como uma variável de ambiente no Koyeb.")
     # Em um ambiente de produção, você não continuaria. Para desenvolvimento, você pode simular.
     # exit(1) # Descomente para forçar a saída se o conteúdo não for encontrado
@@ -33,14 +32,28 @@ if not service_account_json_content:
     # Mas para deployment no Koyeb, esta variável é essencial.
     raise ValueError("FIREBASE_SERVICE_ACCOUNT_KEY_JSON environment variable is not set.")
 
-# Corrige o campo private_key para conter quebras de linha reais
-service_account_dict = json.loads(service_account_json_content)
-if "private_key" in service_account_dict:
-    service_account_dict["private_key"] = service_account_dict["private_key"].replace("\\n", "\n")
-
 try:
-    cred = credentials.Certificate(service_account_dict)
-    firebase_admin.initialize_app(cred)
+    # Carrega as credenciais diretamente do conteúdo JSON da variável de ambiente
+    parsed_service_account_info = json.loads(service_account_json_content)
+    
+    # --- INÍCIO DO DEBUG DA CHAVE PRIVADA ---
+    # Imprime o início e o fim da chave privada para inspeção
+    private_key_content = parsed_service_account_info.get("private_key")
+    if private_key_content:
+        print("\n--- DEBUG: Conteúdo da private_key após json.loads ---")
+        print(f"Tipo: {type(private_key_content)}")
+        print(f"Início da chave: {private_key_content[:50]}...")
+        print(f"Fim da chave: ...{private_key_content[-50:]}")
+        print(f"Comprimento da chave: {len(private_key_content)}")
+        print(f"Contém '\\n' literal? {'\\n' in private_key_content}")
+        print(f"Contém '\\\\' literal? {'\\' in private_key_content}") # Verifica se há barras invertidas não escapadas
+        print("--- FIM DO DEBUG ---")
+    else:
+        print("AVISO: 'private_key' não encontrada no JSON da variável de ambiente.")
+    # --- FIM DO DEBUG DA CHAVE PRIVADA ---
+
+    cred = credentials.Certificate(parsed_service_account_info)
+    firebase_admin.initializeApp(cred)
     db = firestore.client() # Inicializa o cliente Firestore
     print("Firebase Admin SDK inicializado com sucesso usando variável de ambiente.")
 except Exception as e:
@@ -999,7 +1012,6 @@ def delete_company_user():
 
     # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
     app_id = os.getenv("APP_ID", "local-app-id")
-    # A linha abaixo estava com 'user_id_to_update' em vez de 'user_id_to_delete'
     user_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('company_users').document(user_id_to_delete)
 
     try:
