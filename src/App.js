@@ -105,7 +105,7 @@ const App = () => {
     const [total, setTotal] = useState(0);
     const [paymentAmount, setPaymentAmount] = '';
     const [change, setChange] = useState(0);
-    const [difference, setDifference] = useState(0);
+    const [difference, setDifference] = 0;
     const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
     const [sales, setSales] = useState([]);
     const [activeTab, setActiveTab] = useState('caixa');
@@ -139,7 +139,7 @@ const App = () => {
 
     // NOVOS ESTADOS para Gerenciar Usuários da Empresa (para company_admin)
     const [companyUsers, setCompanyUsers] = useState([]); // Lista de usuários da empresa
-    const [newCompanyUserUsername, setNewCompanyUserUsername] = useState('');
+    const [newCompanyUserUsername, setNewCompanyUserUsername] = '';
     const [newCompanyUserPassword, setNewCompanyUserPassword] = '';
     const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
     const [editingCompanyUser, setEditingCompanyUser] = null;
@@ -148,7 +148,7 @@ const App = () => {
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
     const [confirmModalAction, setConfirmModalAction] = useState(null); // Função a ser executada na confirmação
-    const [confirmModalPayload, setConfirmModalPayload] = useState(null); // Payload para a função de confirmação
+    const [confirmModalPayload, setConfirmModalPayload] = null; // Payload para a função de confirmação
 
     const messageTimeoutRef = useRef(null);
 
@@ -199,7 +199,8 @@ const App = () => {
                 const auth = getAuth(app);
                 const db = getFirestore(app);
 
-                setFirebaseApp(app);
+                // eslint-disable-next-line no-unused-vars
+                setFirebaseApp(app); // This line is where the ESLint warning occurs
                 setFirebaseAuth(auth);
                 setFirestoreDb(db);
                 setAppId(currentAppId);
