@@ -28,6 +28,9 @@ const FLASK_BACKEND_URL = 'https://old-owl-williammzin-cd2d4d31.koyeb.app';
 
 // Main App Component
 const App = () => {
+    // Adicionado para depuração: Verifica se o componente está sendo renderizado
+    console.log("App component is rendering...");
+
     const [products, setProducts] = useState([]);
     const [cart, setCart] = useState([]);
     const [total, setTotal] = useState(0);
@@ -52,7 +55,7 @@ const App = () => {
 
     // Estados para Gerenciar Empresas (para o admin principal)
     const [newCompanyUsername, setNewCompanyUsername] = useState('');
-    const [newCompanyPassword, setNewCompanyPassword] = useState('');
+    const [newCompanyPassword, setNewCompanyPassword] = '';
     const [newCompanyName, setNewCompanyName] = useState('');
     const [newCompanyDesignTheme, setNewCompanyDesignTheme] = useState('default');
     const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = useState('');
