@@ -188,13 +188,13 @@ const App = () => {
             console.warn("Variáveis __firebase_config ou __app_id não definidas. Usando configuração de fallback padrão.");
             // Configuração de fallback para desenvolvimento local (SUBSTITUA PELA SUA CONFIGURAÇÃO REAL DO FIREBASE)
             firebaseConfig = {
-                apiKey: "YOUR_FIREBASE_API_KEY",
-                authDomain: "YOUR_FIREBASE_PROJECT_ID.firebaseapp.com",
-                projectId: "YOUR_FIREBASE_PROJECT_ID",
-                storageBucket: "YOUR_FIREBASE_PROJECT_ID.appspot.com",
-                messagingSenderId: "YOUR_FIREBASE_MESSAGING_SENDER_ID",
-                appId: "YOUR_FIREBASE_APP_ID",
-                measurementId: "YOUR_FIREBASE_MEASUREMENT_ID"
+                apiKey: "SUA_API_KEY_AQUI",
+                authDomain: "SEU_PROJECT_ID.firebaseapp.com",
+                projectId: "SEU_PROJECT_ID",
+                storageBucket: "SEU_PROJECT_ID.appspot.com",
+                messagingSenderId: "SEU_MESSAGING_SENDER_ID",
+                appId: "SEU_APP_ID",
+                measurementId: "SEU_MEASUREMENT_ID"
             };
         }
 
