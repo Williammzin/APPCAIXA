@@ -48,7 +48,7 @@ const App = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [currentUser, setCurrentUser] = useState(null); // Armazena { username, role, company_name, design }
     const [loginUsername, setLoginUsername] = useState('');
-    const [loginPassword, setLoginPassword] = useState('');
+    const [loginPassword, setLoginPassword] = '';
 
     // Estados para Gerenciar Empresas (para o admin principal)
     const [newCompanyUsername, setNewCompanyUsername] = useState('');
@@ -68,7 +68,7 @@ const App = () => {
     // NOVOS ESTADOS para Gerenciar Usuários da Empresa (para company_admin)
     const [companyUsers, setCompanyUsers] = useState([]); // Lista de usuários da empresa
     const [newCompanyUserUsername, setNewCompanyUserUsername] = useState('');
-    const [newCompanyUserPassword, setNewCompanyUserPassword] = useState('');
+    const [newCompanyUserPassword, setNewCompanyUserPassword] = '';
     const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
     const [editingCompanyUser, setEditingCompanyUser] = null;
 
@@ -118,8 +118,8 @@ const App = () => {
                 // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
                 console.log("Firestore Products Snapshot received:", snapshot);
                 console.log("Firestore Products Snapshot.docs:", snapshot.docs);
-                if (!snapshot || !snapshot.docs) {
-                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para produtos. Isso não deveria acontecer com um snapshot válido do Firestore.");
+                if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para produtos. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                     setProducts([]); // Garante que o estado seja limpo para evitar erros futuros
                     return;
                 }
@@ -144,8 +144,8 @@ const App = () => {
                 // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
                 console.log("Firestore Sales Snapshot received:", snapshot);
                 console.log("Firestore Sales Snapshot.docs:", snapshot.docs);
-                if (!snapshot || !snapshot.docs) {
-                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para vendas. Isso não deveria acontecer com um snapshot válido do Firestore.");
+                if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para vendas. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                     setSales([]);
                     return;
                 }
@@ -171,8 +171,8 @@ const App = () => {
                 // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
                 console.log("Firestore Company Users Snapshot received:", snapshot);
                 console.log("Firestore Company Users Snapshot.docs:", snapshot.docs);
-                if (!snapshot || !snapshot.docs) {
-                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para usuários da empresa. Isso não deveria acontecer com um snapshot válido do Firestore.");
+                if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+                    console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para usuários da empresa. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                     setCompanyUsers([]);
                     return;
                 }
@@ -211,8 +211,8 @@ const App = () => {
             // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
             console.log("Firestore Companies Snapshot received:", snapshot);
             console.log("Firestore Companies Snapshot.docs:", snapshot.docs);
-            if (!snapshot || !snapshot.docs) {
-                console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido para empresas. Isso não deveria acontecer com um snapshot válido do Firestore.");
+            if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+                console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para empresas. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                 setCompanies([]);
                 return;
             }
