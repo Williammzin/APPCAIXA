@@ -26,11 +26,33 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'local-app-id';
 // ATENÇÃO: SUBSTITUA 'https://old-owl-williammzin-cd2d4d31.koyeb.app' PELA URL REAL DO SEU BACKEND KOYEB!
 const FLASK_BACKEND_URL = 'https://old-owl-williammzin-cd2d4d31.koyeb.app';
 
+// Confirm Modal Component
+const ConfirmModal = ({ message, onConfirm, onCancel }) => {
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+                <p className="text-lg font-semibold mb-6">{message}</p>
+                <div className="flex justify-around">
+                    <button
+                        onClick={onConfirm}
+                        className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200"
+                    >
+                        Confirmar
+                    </button>
+                    <button
+                        onClick={onCancel}
+                        className="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200"
+                    >
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Main App Component
 const App = () => {
-    // Adicionado para depuração: Verifica se o componente está sendo renderizado
-    console.log("App component is rendering...");
-
     const [products, setProducts] = useState([]);
     const [cart, setCart] = useState([]);
     const [total, setTotal] = useState(0);
@@ -51,7 +73,7 @@ const App = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [currentUser, setCurrentUser] = useState(null); // Armazena { username, role, company_name, design }
     const [loginUsername, setLoginUsername] = useState('');
-    const [loginPassword, setLoginPassword] = '';
+    const [loginPassword, setLoginPassword] = useState('');
 
     // Estados para Gerenciar Empresas (para o admin principal)
     const [newCompanyUsername, setNewCompanyUsername] = useState('');
@@ -75,6 +97,12 @@ const App = () => {
     const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
     const [editingCompanyUser, setEditingCompanyUser] = null;
 
+    // Estados para o modal de confirmação
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [confirmModalMessage, setConfirmModalMessage] = useState('');
+    const [confirmModalAction, setConfirmModalAction] = useState(null); // Função a ser executada na confirmação
+    const [confirmModalPayload, setConfirmModalPayload] = useState(null); // Payload para a função de confirmação
+
     const messageTimeoutRef = useRef(null);
 
     // Function to display messages
@@ -91,13 +119,12 @@ const App = () => {
     // Firebase Authentication (agora usa o token personalizado do Flask)
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
-            console.log("Firebase Auth state changed. User:", user); // NOVO LOG
             if (user && isLoggedIn && currentUser && user.uid === currentUser.username) {
-                console.log("Firebase Auth state changed: User is logged in with UID:", user.uid);
+                // User is logged in with UID
             } else if (!user && isLoggedIn) {
-                console.warn("Firebase Auth state changed: User logged in via Flask, but Firebase Auth is not.");
+                // User logged in via Flask, but Firebase Auth is not.
             } else if (user && !isLoggedIn) {
-                console.warn("Firebase Auth state changed: User logged in via Firebase, but not via Flask. (No auto-logout)");
+                // User logged in via Firebase, but not via Flask. (No auto-logout)
             }
         });
         return () => unsubscribe();
@@ -105,36 +132,25 @@ const App = () => {
 
     // Firestore Listeners for Products, Sales, and Company Users (dependem do currentUser do Flask)
     useEffect(() => {
-        // NOVO LOG: Verifica o estado das dependências do useEffect
-        console.log("Firestore listeners useEffect triggered. isLoggedIn:", isLoggedIn, "currentUser:", currentUser);
-
         if (!isLoggedIn || !currentUser || !currentUser.username) {
-            console.log("Firestore listeners skipped: User not logged in or currentUser not set."); // NOVO LOG
             setProducts([]);
             setSales([]);
             setCompanyUsers([]); // Limpa usuários da empresa também
             return;
         }
 
-        console.log("Attempting to fetch Firestore data for user:", currentUser.username);
-
         // Products Listener (para company_admin e gerente)
         let unsubscribeProducts;
         if (currentUser.role === 'company_admin' || currentUser.role === 'gerente') {
             const productsCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/products`);
             unsubscribeProducts = onSnapshot(productsCollectionRef, (snapshot) => {
-                // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
-                console.log("Firestore Products Snapshot received:", snapshot);
-                console.log("Firestore Products Snapshot.docs:", snapshot.docs);
-                if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+                if (!snapshot || !Array.isArray(snapshot.docs)) {
                     console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para produtos. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                     setProducts([]); // Garante que o estado seja limpo para evitar erros futuros
                     return;
                 }
-                // --- FIM DEBUG ---
                 const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setProducts(productsData);
-                console.log("Produtos carregados com sucesso!");
             }, (error) => {
                 console.error("Erro ao carregar produtos:", error);
                 showMessage("Erro ao carregar produtos do Firestore. Verifique as permissões.", "error");
@@ -149,18 +165,13 @@ const App = () => {
         if (currentUser.role === 'company_admin' || currentUser.role === 'gerente') {
             const salesCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/sales`);
             unsubscribeSales = onSnapshot(salesCollectionRef, (snapshot) => {
-                // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
-                console.log("Firestore Sales Snapshot received:", snapshot);
-                console.log("Firestore Sales Snapshot.docs:", snapshot.docs);
-                if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+                if (!snapshot || !Array.isArray(snapshot.docs)) {
                     console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para vendas. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                     setSales([]);
                     return;
                 }
-                // --- FIM DEBUG ---
                 const salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setSales(salesData);
-                console.log("Vendas carregadas com sucesso!");
             }, (error) => {
                 console.error("Erro ao carregar vendas:", error);
                 showMessage("Erro ao carregar vendas do Firestore. Verifique as permissões.", "error");
@@ -174,20 +185,14 @@ const App = () => {
         let unsubscribeCompanyUsers;
         if (currentUser.role === 'company_admin') {
             const companyUsersCollectionRef = collection(db, `artifacts/${appId}/users/${currentUser.username}/company_users`);
-            console.log("Firestore Company Users Listener Path:", companyUsersCollectionRef.path); // NOVO LOG
             unsubscribeCompanyUsers = onSnapshot(companyUsersCollectionRef, (snapshot) => {
-                // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
-                console.log("Firestore Company Users Snapshot received:", snapshot);
-                console.log("Firestore Company Users Snapshot.docs:", snapshot.docs);
-                if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+                if (!snapshot || !Array.isArray(snapshot.docs)) {
                     console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para usuários da empresa. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                     setCompanyUsers([]);
                     return;
                 }
-                // --- FIM DEBUG ---
                 const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setCompanyUsers(usersData);
-                console.log("Usuários da empresa carregados com sucesso!", usersData); // NOVO LOG
             }, (error) => {
                 console.error("Erro ao carregar usuários da empresa:", error);
                 showMessage("Erro ao carregar usuários da empresa do Firestore. Verifique as permissões.", "error");
@@ -201,17 +206,12 @@ const App = () => {
             if (unsubscribeProducts) unsubscribeProducts();
             if (unsubscribeSales) unsubscribeSales();
             if (unsubscribeCompanyUsers) unsubscribeCompanyUsers();
-            console.log("Firestore listeners for Products, Sales, and Company Users unsubscribed.");
         };
     }, [isLoggedIn, currentUser]);
 
     // Listener para carregar a lista de empresas (apenas para admin principal)
     useEffect(() => {
-        // NOVO LOG: Verifica o estado das dependências do useEffect
-        console.log("Companies listener useEffect triggered. isLoggedIn:", isLoggedIn, "currentUser:", currentUser);
-
         if (!isLoggedIn || !currentUser || currentUser.role !== 'admin') {
-            console.log("Companies listener skipped: User not logged in or not admin."); // NOVO LOG
             setCompanies([]);
             return;
         }
@@ -220,18 +220,13 @@ const App = () => {
         const q = query(companiesCollectionRef, where("role", "==", "company_admin"));
 
         const unsubscribeCompanies = onSnapshot(q, (snapshot) => {
-            // --- DEBUG: Adicionado para depurar 'null is not iterable' ---
-            console.log("Firestore Companies Snapshot received:", snapshot);
-            console.log("Firestore Companies Snapshot.docs:", snapshot.docs);
-            if (!snapshot || !Array.isArray(snapshot.docs)) { // Updated check
+            if (!snapshot || !Array.isArray(snapshot.docs)) {
                 console.error("ERRO CRÍTICO: Firestore snapshot ou snapshot.docs é nulo/indefinido/não é um array para empresas. Isso não deveria acontecer com um snapshot válido do Firestore.", snapshot);
                 setCompanies([]);
                 return;
             }
-            // --- FIM DEBUG ---
             const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setCompanies(companiesData);
-            console.log("Empresas carregadas com sucesso!");
         }, (error) => {
             console.error("Erro ao carregar empresas:", error);
             showMessage("Erro ao carregar empresas do Firestore. Verifique as permissões.", "error");
@@ -239,7 +234,6 @@ const App = () => {
 
         return () => {
             unsubscribeCompanies();
-            console.log("Firestore listener for Companies unsubscribed.");
         };
     }, [isLoggedIn, currentUser]);
 
@@ -364,7 +358,6 @@ const App = () => {
                 });
 
                 const data = await response.json();
-                console.log("Dados Pix recebidos do backend:", data);
 
                 if (response.ok) {
                     // Adiciona o prefixo data:image/png;base64, se ainda não tiver
@@ -420,7 +413,6 @@ const App = () => {
             if (saleId && paymentMethod === 'Pix') {
                 try {
                     await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId));
-                    console.log("Venda pendente removida após erro na geração do Pix.");
                 } catch (deleteError) {
                     console.error("Erro ao remover venda pendente após falha na geração do Pix:", deleteError);
                 }
@@ -508,26 +500,25 @@ const App = () => {
     };
 
     const handleDeleteProduct = async (productId) => {
-        console.log("Tentando excluir produto com ID:", productId);
-        console.log("Usuário atual para exclusão (currentUser.username):", currentUser.username);
-        console.log("UID do usuário autenticado no Firebase (auth.currentUser?.uid):", auth.currentUser?.uid); // Log do UID real do Firebase Auth
-        try {
-            // O caminho para exclusão deve corresponder ao caminho usado para buscar/adicionar
-            const docRef = doc(db, `artifacts/${appId}/users/${currentUser.username}/products`, productId);
-            console.log("Caminho do documento Firestore para exclusão:", docRef.path);
-
-            await deleteDoc(docRef);
-            showMessage("Produto excluído com sucesso!");
-        } catch (e) {
-            console.error("Erro ao excluir produto:", e);
-            console.error("Código do erro Firestore:", e.code); // Log do código de erro
-            console.error("Mensagem do erro Firestore:", e.message); // Log da mensagem de erro
-            if (e.code === 'permission-denied') {
-                showMessage("Erro de permissão: Você não tem autorização para excluir este produto. Verifique as permissões.", "error");
-            } else {
-                showMessage("Erro ao excluir produto.", "error");
+        setConfirmModalMessage(`Tem certeza que deseja excluir o produto com ID: ${productId}?`);
+        setConfirmModalAction(() => async () => {
+            try {
+                const docRef = doc(db, `artifacts/${appId}/users/${currentUser.username}/products`, productId);
+                await deleteDoc(docRef);
+                showMessage("Produto excluído com sucesso!");
+            } catch (e) {
+                console.error("Erro ao excluir produto:", e);
+                if (e.code === 'permission-denied') {
+                    showMessage("Erro de permissão: Você não tem autorização para excluir este produto. Verifique as permissões.", "error");
+                } else {
+                    showMessage("Erro ao excluir produto.", "error");
+                }
+            } finally {
+                setShowConfirmModal(false);
             }
-        }
+        });
+        setConfirmModalPayload(productId);
+        setShowConfirmModal(true);
     };
 
     const cancelEdit = () => {
@@ -583,7 +574,6 @@ const App = () => {
             });
 
             const data = await response.json();
-            console.log("Dados recebidos do backend:", data);
 
             if (response.ok) {
                 const firebaseToken = data.firebase_token;
@@ -614,7 +604,6 @@ const App = () => {
                     }
                 } else {
                     showMessage("Erro: Token Firebase não recebido do backend.", "error");
-                    console.error("Firebase token missing in Flask response. Full data:", data);
                 }
             } else {
                 showMessage(`Erro de login: ${data.error || 'Credenciais inválidas'}`, 'error');
@@ -690,32 +679,35 @@ const App = () => {
 
     // Função para excluir uma empresa (login)
     const handleDeleteCompany = async (companyId) => {
-        if (!window.confirm(`Tem certeza que deseja excluir a empresa ${companyId} e TODOS os seus dados (produtos, vendas, etc.)? Esta ação é irreversível!`)) {
-            return;
-        }
+        setConfirmModalMessage(`Tem certeza que deseja excluir a empresa ${companyId} e TODOS os seus dados (produtos, vendas, etc.)? Esta ação é irreversível!`);
+        setConfirmModalAction(() => async () => {
+            try {
+                const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do usuário logado (admin)
+                const response = await fetch(`${FLASK_BACKEND_URL}/delete_company`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}` // Envia o ID Token para autenticação no backend
+                    },
+                    body: JSON.stringify({ company_username: companyId }),
+                });
 
-        try {
-            const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do usuário logado (admin)
-            const response = await fetch(`${FLASK_BACKEND_URL}/delete_company`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${idToken}` // Envia o ID Token para autenticação no backend
-                },
-                body: JSON.stringify({ company_username: companyId }),
-            });
+                const data = await response.json();
 
-            const data = await response.json();
-
-            if (response.ok) {
-                showMessage(`Empresa "${companyId}" excluída com sucesso!`, 'success');
-            } else {
-                showMessage(`Erro ao excluir empresa: ${data.error || 'Erro desconhecido'}`, "error");
+                if (response.ok) {
+                    showMessage(`Empresa "${companyId}" excluída com sucesso!`, 'success');
+                } else {
+                    showMessage(`Erro ao excluir empresa: ${data.error || 'Erro desconhecido'}`, "error");
+                }
+            } catch (error) {
+                console.error('Erro ao conectar ao backend para excluir empresa:', error);
+                showMessage('Erro ao conectar ao servidor para excluir empresa.', 'error');
+            } finally {
+                setShowConfirmModal(false);
             }
-        } catch (error) {
-            console.error('Erro ao conectar ao backend para excluir empresa:', error);
-            showMessage('Erro ao conectar ao servidor para excluir empresa.', 'error');
-        }
+        });
+        setConfirmModalPayload(companyId);
+        setShowConfirmModal(true);
     };
 
     // --- Funções de Gerenciamento de Usuários da Empresa (para company_admin) ---
@@ -816,41 +808,43 @@ const App = () => {
     };
 
     const handleDeleteCompanyUser = async (userId) => {
-        if (!window.confirm(`Tem certeza que deseja excluir o usuário ${userId}? Esta ação é irreversível!`)) {
-            return;
-        }
-        if (!currentUser || !currentUser.username) {
-            showMessage("Erro: Administrador da empresa não identificado.", "error");
-            return;
-        }
-
-        console.log("Tentando excluir usuário da empresa com ID:", userId); // NOVO LOG
-
-        try {
-            const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do company_admin logado
-            const response = await fetch(`${FLASK_BACKEND_URL}/company_users/delete`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${idToken}`
-                },
-                body: JSON.stringify({
-                    company_id: currentUser.username,
-                    user_id: userId // O ID do documento do usuário no Firestore (que é o firebase_uid)
-                }),
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                showMessage(`Usuário "${userId}" excluído com sucesso!`, 'success');
-            } else {
-                showMessage(`Erro ao excluir usuário: ${data.error || 'Erro desconhecido'}`, "error");
+        setConfirmModalMessage(`Tem certeza que deseja excluir o usuário ${userId}? Esta ação é irreversível!`);
+        setConfirmModalAction(() => async () => {
+            if (!currentUser || !currentUser.username) {
+                showMessage("Erro: Administrador da empresa não identificado.", "error");
+                setShowConfirmModal(false);
+                return;
             }
-        } catch (e) {
-            console.error("Erro ao excluir usuário da empresa:", e);
-            showMessage("Erro ao conectar ao servidor para excluir usuário.", "error");
-        }
+            try {
+                const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do company_admin logado
+                const response = await fetch(`${FLASK_BACKEND_URL}/company_users/delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({
+                        company_id: currentUser.username,
+                        user_id: userId // O ID do documento do usuário no Firestore (que é o firebase_uid)
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage(`Usuário "${userId}" excluído com sucesso!`, 'success');
+                } else {
+                    showMessage(`Erro ao excluir usuário: ${data.error || 'Erro desconhecido'}`, "error");
+                }
+            } catch (e) {
+                console.error("Erro ao excluir usuário da empresa:", e);
+                showMessage("Erro ao conectar ao servidor para excluir usuário.", "error");
+            } finally {
+                setShowConfirmModal(false);
+            }
+        });
+        setConfirmModalPayload(userId);
+        setShowConfirmModal(true);
     };
 
     const cancelEditCompanyUser = () => {
@@ -880,42 +874,46 @@ const App = () => {
 
     // NOVO: Função para cancelar o pagamento Pix
     const handleCancelPixPayment = async (paymentId) => {
-        if (!window.confirm(`Tem certeza que deseja cancelar o pagamento Pix com ID ${paymentId}?`)) {
-            return;
-        }
-
-        if (!currentUser || !currentUser.username) {
-            showMessage("Erro: Usuário da empresa não identificado para cancelar Pix.", "error");
-            return;
-        }
-
-        try {
-            const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do company_admin logado
-            const response = await fetch(`${FLASK_BACKEND_URL}/pix/cancel`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${idToken}`
-                },
-                body: JSON.stringify({
-                    payment_id: paymentId,
-                    company_username: currentUser.username
-                }),
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                showMessage(`Pagamento Pix ${paymentId} cancelado com sucesso!`, 'success');
-                // Opcional: Atualizar o status da venda no Firestore no frontend, se necessário
-                // Ou depender do webhook do Mercado Pago para fazer isso
-            } else {
-                showMessage(`Erro ao cancelar Pix: ${data.error || 'Erro desconhecido'}`, "error");
+        setConfirmModalMessage(`Tem certeza que deseja cancelar o pagamento Pix com ID ${paymentId}?`);
+        setConfirmModalAction(() => async () => {
+            if (!currentUser || !currentUser.username) {
+                showMessage("Erro: Usuário da empresa não identificado para cancelar Pix.", "error");
+                setShowConfirmModal(false);
+                return;
             }
-        } catch (error) {
-            console.error('Erro ao conectar ao servidor para cancelar Pix:', error);
-            showMessage('Erro ao conectar ao servidor para cancelar Pix.', "error");
-        }
+
+            try {
+                const idToken = await auth.currentUser.getIdToken(); // Obtém o ID Token do company_admin logado
+                const response = await fetch(`${FLASK_BACKEND_URL}/pix/cancel`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({
+                        payment_id: paymentId,
+                        company_username: currentUser.username
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage(`Pagamento Pix ${paymentId} cancelado com sucesso!`, 'success');
+                    // Opcional: Atualizar o status da venda no Firestore no frontend, se necessário
+                    // Ou depender do webhook do Mercado Pago para fazer isso
+                } else {
+                    showMessage(`Erro ao cancelar Pix: ${data.error || 'Erro desconhecido'}`, "error");
+                }
+            } catch (error) {
+                console.error('Erro ao conectar ao servidor para cancelar Pix:', error);
+                showMessage('Erro ao conectar ao servidor para cancelar Pix.', "error");
+            } finally {
+                setShowConfirmModal(false);
+            }
+        });
+        setConfirmModalPayload(paymentId);
+        setShowConfirmModal(true);
     };
 
 
@@ -1758,6 +1756,17 @@ const App = () => {
                     </div>
                 )}
             </div>
+            {showConfirmModal && (
+                <ConfirmModal
+                    message={confirmModalMessage}
+                    onConfirm={() => {
+                        if (confirmModalAction) {
+                            confirmModalAction(confirmModalPayload);
+                        }
+                    }}
+                    onCancel={() => setShowConfirmModal(false)}
+                />
+            )}
         </div>
     );
 };
