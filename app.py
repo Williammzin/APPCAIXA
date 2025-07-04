@@ -37,6 +37,8 @@ if not service_account_json_content:
 service_account_dict = json.loads(service_account_json_content)
 if "private_key" in service_account_dict:
     service_account_dict["private_key"] = service_account_dict["private_key"].replace("\\n", "\n")
+    print("DEBUG: Chave privada após replace:")
+    print(service_account_dict["private_key"])
 
 try:
     cred = credentials.Certificate(service_account_dict)
@@ -299,7 +301,7 @@ def register_company():
         company_doc_ref.set(company_data_for_firestore)
         print(f"Dados da empresa '{company_username}' salvos no Firestore.")
 
-        # 4. Atualiza o users_db em memória (para uso imediato no login, embora Firestore seja a fonte primária)
+        # 4. Atualiza o users_db em memória (para uso imediato no login, embora Firestore é a fonte primária)
         users_db[company_username] = company_data_for_firestore
 
         print(f"Empresa registrada: {company_name} com nome de usuário: {company_username} (Tema: {design_theme}, Token MP: {mercado_pago_access_token}).")

@@ -188,7 +188,7 @@ const App = () => {
             console.warn("Variáveis __firebase_config ou __app_id não definidas. Usando configuração de fallback padrão.");
             // Configuração de fallback para desenvolvimento local (SUBSTITUA PELA SUA CONFIGURAÇÃO REAL DO FIREBASE)
             firebaseConfig = {
-                apiKey: "SUA_API_KEY_AQUI",
+                apiKey: "COLE_AQUI_SUA_API_KEY_REAL",
                 authDomain: "SEU_PROJECT_ID.firebaseapp.com",
                 projectId: "SEU_PROJECT_ID",
                 storageBucket: "SEU_PROJECT_ID.appspot.com",
@@ -1191,15 +1191,15 @@ const App = () => {
 
     // Define o estilo de fundo dinamicamente (cores/gradiente)
     const backgroundClasses = currentDesign.dominant_color
-        ? `${currentDesign.dominant_color}` // Usa a cor dominante se definida
-        : `${currentDesign.gradient_from || 'from-blue-50'} ${currentDesign.gradient_to || 'to-indigo-100'}`; // Fallback para gradiente se não houver cor dominante
+        ? `${currentDesign.dominant_color}`
+        : `${currentDesign.gradient_from || 'from-blue-50'} ${currentDesign.gradient_to || 'to-indigo-100'}`;
 
     return (
         <div
             className={`min-h-screen p-4 ${getThemeClasses('font_family')} flex flex-col items-center relative`}
         >
-            {/* Vídeo de fundo condicional para a aba "Gerenciar Empresas" */}
-            {showCompanyManagementVideo && (
+            {/* Fundo de vídeo para a aba "Gerenciar Empresas" */}
+            {showCompanyManagementVideo ? (
                 <>
                     <video
                         autoPlay
@@ -1212,13 +1212,10 @@ const App = () => {
                     >
                         Seu navegador não suporta a tag de vídeo para o fundo de gerenciamento de empresas.
                     </video>
-                    {/* Overlay para legibilidade sobre o vídeo de fundo */}
                     <div className="absolute z-10 w-full h-full bg-black opacity-50 top-0 left-0"></div>
                 </>
-            )}
-
-            {/* Fundo de cor/gradiente condicional para outras abas */}
-            {!showCompanyManagementVideo && (
+            ) : (
+                // Fundo de cor/gradiente para as outras abas
                 <div className={`absolute z-0 w-full h-full top-0 left-0 ${backgroundClasses}`}></div>
             )}
 
@@ -1956,6 +1953,9 @@ const App = () => {
             )}
         </div>
     );
+};
+
+export default App;
 };
 
 export default App;
