@@ -1,14 +1,14 @@
 /* global __app_id, __firebase_config, __initial_auth_token */
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query, where, setDoc, getDoc } from 'firebase/firestore';
 
-// URL base do seu backend Flask (AGORA APONTA PARA O KOYEB)
+// URL base do seu backend Flask
 // ATENÇÃO: SUBSTITUA 'https://old-owl-williammzin-cd2d4d31.koyeb.app' PELA URL REAL DO SEU BACKEND KOYEB!
 const FLASK_BACKEND_URL = 'https://old-owl-williammzin-cd2d4d31.koyeb.app';
 
-// Default themes in case currentUser.design is not available or incomplete
+// Temas padrão para o design da interface
 const DEFAULT_THEMES = {
     default: {
         gradient_from: 'from-blue-50',
@@ -25,7 +25,7 @@ const DEFAULT_THEMES = {
         success_color: 'bg-green-500',
         error_color: 'bg-red-500',
         font_family: 'font-sans',
-        dominant_color: 'bg-blue-50' // Used for table headers, etc.
+        dominant_color: 'bg-blue-50' // Usado para cabeçalhos de tabela, etc.
     },
     corporate: {
         gradient_from: 'from-gray-100',
@@ -63,7 +63,7 @@ const DEFAULT_THEMES = {
     }
 };
 
-// Confirm Modal Component
+// Componente de Modal de Confirmação
 const ConfirmModal = ({ message, onConfirm, onCancel }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -88,71 +88,77 @@ const ConfirmModal = ({ message, onConfirm, onCancel }) => {
     );
 };
 
-// Main App Component
+// Componente Principal da Aplicação
 const App = () => {
-    console.log("App component is rendering...");
+    console.log("O componente App está sendo renderizado...");
 
-    // Firebase instances as states
+    // Estados para instâncias do Firebase
     const [firebaseApp, setFirebaseApp] = useState(null);
     const [firebaseAuth, setFirebaseAuth] = useState(null);
     const [firestoreDb, setFirestoreDb] = useState(null);
 
-    // App ID from Canvas environment
+    // ID da Aplicação do ambiente Canvas
     const [appId, setAppId] = useState('local-app-id');
 
+    // Estados para dados da loja
     const [products, setProducts] = useState([]);
+    const [sales, setSales] = useState([]);
+    const [companies, setCompanies] = useState([]); // Apenas para o admin principal
+    const [companyUsers, setCompanyUsers] = useState([]); // Apenas para company_admin
+
+    // Estados do carrinho e pagamento
     const [cart, setCart] = useState([]);
     const [total, setTotal] = useState(0);
-    const [paymentAmount, setPaymentAmount] = '';
+    const [paymentAmount, setPaymentAmount] = useState('');
     const [change, setChange] = useState(0);
-    const [difference, setDifference] = useState(0); // CORRIGIDO: useState(0)
+    const [difference, setDifference] = useState(0);
     const [paymentMethod, setPaymentMethod] = useState('Dinheiro');
-    const [sales, setSales] = useState([]);
-    const [activeTab, setActiveTab] = useState('caixa');
-    const [newProductName, setNewProductName] = '';
-    const [newProductValue, setNewProductValue] = '';
-    const [newProductCost, setNewProductCost] = '';
-    const [newProductId, setNewProductId] = '';
-    const [editingProduct, setEditingProduct] = null;
-    const [message, setMessage] = useState('');
 
-    // Estados para autenticação via Flask backend
+    // Estados para gerenciamento de produtos
+    const [newProductName, setNewProductName] = useState('');
+    const [newProductValue, setNewProductValue] = useState('');
+    const [newProductCost, setNewProductCost] = useState('');
+    const [newProductId, setNewProductId] = useState('');
+    const [editingProduct, setEditingProduct] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    // Estados para autenticação e usuário atual
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [currentUser, setCurrentUser] = useState(null); // Armazena { username, role, company_name, design }
     const [loginUsername, setLoginUsername] = useState('');
-    const [loginPassword, setLoginPassword] = '';
+    const [loginPassword, setLoginPassword] = useState('');
 
-    // Estados para Gerenciar Empresas (para o admin principal)
+    // Estados para registro de empresa (apenas para admin principal)
     const [newCompanyUsername, setNewCompanyUsername] = useState('');
-    const [newCompanyPassword, setNewCompanyPassword] = '';
-    const [newCompanyName, setNewCompanyName] = '';
+    const [newCompanyPassword, setNewCompanyPassword] = useState('');
+    const [newCompanyName, setNewCompanyName] = useState('');
     const [newCompanyDesignTheme, setNewCompanyDesignTheme] = useState('default');
-    const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = '';
-    const [companies, setCompanies] = useState([]);
+    const [newCompanyMercadoPagoAccessToken, setNewCompanyMercadoPagoAccessToken] = useState('');
 
-    // Estados para a funcionalidade Pix
+    // Estados para gerenciamento de usuários da empresa (apenas para company_admin)
+    const [newCompanyUserUsername, setNewCompanyUserUsername] = useState('');
+    const [newCompanyUserPassword, setNewCompanyUserPassword] = useState('');
+    const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa');
+    const [editingCompanyUser, setEditingCompanyUser] = useState(null);
+
+    // Estados para funcionalidade Pix
     const [pixQrCodeData, setPixQrCodeData] = useState(null);
     const [isLoadingPix, setIsLoadingPix] = useState(false);
 
-    // Estado para o termo de pesquisa de produtos
-    const [searchTerm, setSearchTerm] = useState('');
+    // Estados para controle de abas
+    const [activeTab, setActiveTab] = useState('caixa');
 
-    // NOVOS ESTADOS para Gerenciar Usuários da Empresa (para company_admin)
-    const [companyUsers, setCompanyUsers] = useState([]); // Lista de usuários da empresa
-    const [newCompanyUserUsername, setNewCompanyUserUsername] = '';
-    const [newCompanyUserPassword, setNewCompanyUserPassword] = '';
-    const [newCompanyUserRole, setNewCompanyUserRole] = useState('caixa'); // 'caixa', 'gerente'
-    const [editingCompanyUser, setEditingCompanyUser] = null;
+    // Estados para mensagens de feedback
+    const [message, setMessage] = useState('');
+    const messageTimeoutRef = useRef(null);
 
     // Estados para o modal de confirmação
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmModalMessage, setConfirmModalMessage] = useState('');
-    const [confirmModalAction, setConfirmModalAction] = useState(null); // Função a ser executada na confirmação
-    const [confirmModalPayload, setConfirmModalPayload] = useState(null); // Payload para a função de confirmação
+    const [confirmModalAction, setConfirmModalAction] = useState(null);
+    const [confirmModalPayload, setConfirmModalPayload] = useState(null);
 
-    const messageTimeoutRef = useRef(null);
-
-    // Function to display messages
+    // Função para exibir mensagens na interface
     const showMessage = (msg, type = 'success') => {
         setMessage({ text: msg, type });
         if (messageTimeoutRef.current) {
@@ -163,25 +169,25 @@ const App = () => {
         }, 3000);
     };
 
-    // Firebase Initialization and Auth Listener
+    // Efeito para inicialização do Firebase e listener de autenticação
     useEffect(() => {
-        console.log("useEffect: Firebase Initialization and Auth Listener.");
+        console.log("useEffect: Inicialização do Firebase e Listener de Autenticação.");
         let firebaseConfig = null;
         let currentAppId = 'local-app-id';
 
-        // Try to get config from Canvas environment
+        // Tenta obter a configuração do ambiente Canvas
         if (typeof __firebase_config !== 'undefined' && typeof __app_id !== 'undefined') {
             try {
                 firebaseConfig = JSON.parse(__firebase_config);
                 currentAppId = __app_id;
-                console.log("Firebase Config and App ID loaded from Canvas environment.");
+                console.log("Configuração do Firebase e ID do App carregados do ambiente Canvas.");
             } catch (e) {
-                console.error("Error parsing __firebase_config:", e);
-                showMessage("Error loading Firebase configuration.", "error");
+                console.error("Erro ao fazer parse de __firebase_config:", e);
+                showMessage("Erro ao carregar a configuração do Firebase.", "error");
             }
         } else {
-            console.warn("Variables __firebase_config or __app_id not defined. Using default fallback configuration.");
-            // Fallback configuration for local development (REPLACE WITH YOUR ACTUAL FIREBASE CONFIG)
+            console.warn("Variáveis __firebase_config ou __app_id não definidas. Usando configuração de fallback padrão.");
+            // Configuração de fallback para desenvolvimento local (SUBSTITUA PELA SUA CONFIGURAÇÃO REAL DO FIREBASE)
             firebaseConfig = {
                 apiKey: "YOUR_FIREBASE_API_KEY",
                 authDomain: "YOUR_FIREBASE_PROJECT_ID.firebaseapp.com",
@@ -200,16 +206,16 @@ const App = () => {
                 const db = getFirestore(app);
 
                 // eslint-disable-next-line no-unused-vars
-                setFirebaseApp(app); // This line is where the ESLint warning occurs
+                setFirebaseApp(app); // Esta linha é onde o aviso ESLint ocorre, mas é intencional.
                 setFirebaseAuth(auth);
                 setFirestoreDb(db);
                 setAppId(currentAppId);
 
-                console.log("Firebase App, Auth, and Firestore initialized and set to state.");
+                console.log("Firebase App, Auth e Firestore inicializados e definidos no estado.");
 
-                // Auth state change listener
+                // Listener de mudança de estado de autenticação
                 const unsubscribe = onAuthStateChanged(auth, async (user) => {
-                    console.log("Firebase Auth state changed. User:", user);
+                    console.log("Estado de autenticação do Firebase alterado. Usuário:", user);
                     if (user) {
                         try {
                             const idTokenResult = await user.getIdTokenResult(true);
@@ -218,47 +224,48 @@ const App = () => {
                             const design = idTokenResult.claims.design;
 
                             setCurrentUser({
-                                username: user.uid, // Using UID as username for consistency with Flask
+                                username: user.uid, // Usando UID como username para consistência com Flask
                                 role: role,
                                 company_name: companyName,
                                 design: design
                             });
                             setIsLoggedIn(true);
-                            console.log("User logged in and currentUser state updated:", user.uid, role);
+                            console.log("Usuário logado e estado currentUser atualizado:", user.uid, role);
                         } catch (claimsError) {
-                            console.error("Error getting user claims:", claimsError);
-                            showMessage("Error retrieving user details. Please try logging in again.", "error");
+                            console.error("Erro ao obter custom claims do usuário:", claimsError);
+                            showMessage("Erro ao recuperar detalhes do usuário. Por favor, tente fazer login novamente.", "error");
                             setIsLoggedIn(false);
                             setCurrentUser(null);
                         }
                     } else {
-                        console.log("No user authenticated in Firebase.");
+                        console.log("Nenhum usuário autenticado no Firebase.");
                         setIsLoggedIn(false);
                         setCurrentUser(null);
                     }
                 });
 
-                // Attempt to sign in with custom token from Canvas environment
+                // Tenta fazer login com o token personalizado inicial do ambiente Canvas
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     signInWithCustomToken(auth, __initial_auth_token)
-                        .then(() => console.log("Signed in with initial custom token."))
-                        .catch(error => console.error("Error signing in with initial custom token:", error));
+                        .then(() => console.log("Login com token personalizado inicial bem-sucedido."))
+                        .catch(error => console.error("Erro ao fazer login com token personalizado inicial:", error));
                 }
 
-                return () => unsubscribe(); // Cleanup auth listener on component unmount
+                return () => unsubscribe(); // Limpeza do listener na desmontagem do componente
             } catch (e) {
-                console.error("Critical error initializing Firebase:", e);
-                showMessage("Critical error initializing Firebase. Please check console.", "error");
+                console.error("Erro crítico ao inicializar o Firebase:", e);
+                showMessage("Erro crítico ao inicializar o Firebase. Por favor, verifique o console.", "error");
             }
         }
-    }, []); // Empty dependency array means this runs once on mount
+    }, []); // Array de dependências vazio significa que este efeito é executado apenas uma vez na montagem
 
-    // Firestore Listeners for Products, Sales, and Company Users (depend on firestoreDb and currentUser)
+    // Efeito para listeners do Firestore (Produtos, Vendas, Usuários da Empresa, Empresas)
+    // Depende de firestoreDb e currentUser para garantir que o Firebase esteja inicializado e o usuário logado
     useEffect(() => {
-        console.log("useEffect: Firestore listeners triggered. firestoreDb:", !!firestoreDb, "currentUser:", currentUser);
+        console.log("useEffect: Listeners do Firestore acionados. firestoreDb:", !!firestoreDb, "currentUser:", currentUser);
 
         if (!firestoreDb || !currentUser || !currentUser.username) {
-            console.log("Firestore listeners skipped: DB not ready or currentUser not set.");
+            console.log("Listeners do Firestore ignorados: DB não pronto ou currentUser não definido.");
             setProducts([]);
             setSales([]);
             setCompanyUsers([]);
@@ -266,96 +273,97 @@ const App = () => {
             return;
         }
 
-        console.log("Attempting to fetch Firestore data for user:", currentUser.username);
+        console.log("Tentando buscar dados do Firestore para o usuário:", currentUser.username);
 
         let unsubscribeProducts;
         let unsubscribeSales;
         let unsubscribeCompanyUsers;
         let unsubscribeCompanies;
 
-        // Products Listener (for company_admin, gerente, caixa)
+        // Listener de Produtos (para company_admin, gerente, caixa)
         if (['company_admin', 'gerente', 'caixa'].includes(currentUser.role)) {
             const productsCollectionRef = collection(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/products`);
             unsubscribeProducts = onSnapshot(productsCollectionRef, (snapshot) => {
-                console.log("Firestore Products Snapshot received.");
+                console.log("Snapshot de Produtos do Firestore recebido.");
                 const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setProducts(productsData);
-                console.log("Products loaded successfully!");
+                console.log("Produtos carregados com sucesso!");
             }, (error) => {
-                console.error("Error loading products:", error);
-                showMessage("Error loading products from Firestore. Check permissions.", "error");
+                console.error("Erro ao carregar produtos:", error);
+                showMessage("Erro ao carregar produtos do Firestore. Verifique as permissões.", "error");
             });
         } else {
             setProducts([]);
         }
 
-        // Sales Listener (for company_admin, gerente, caixa)
+        // Listener de Vendas (para company_admin, gerente, caixa)
         if (['company_admin', 'gerente', 'caixa'].includes(currentUser.role)) {
             const salesCollectionRef = collection(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`);
             unsubscribeSales = onSnapshot(salesCollectionRef, (snapshot) => {
-                console.log("Firestore Sales Snapshot received.");
+                console.log("Snapshot de Vendas do Firestore recebido.");
                 const salesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setSales(salesData);
-                console.log("Sales loaded successfully!");
+                console.log("Vendas carregadas com sucesso!");
             }, (error) => {
-                console.error("Error loading sales:", error);
-                showMessage("Error loading sales from Firestore. Check permissions.", "error");
+                console.error("Erro ao carregar vendas:", error);
+                showMessage("Erro ao carregar vendas do Firestore. Verifique as permissões.", "error");
             });
         } else {
             setSales([]);
         }
 
-        // Company Users Listener (ONLY for company_admin)
+        // Listener de Usuários da Empresa (APENAS para company_admin)
         if (currentUser.role === 'company_admin') {
             const companyUsersCollectionRef = collection(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/company_users`);
-            console.log("Firestore Company Users Listener Path:", companyUsersCollectionRef.path);
+            console.log("Caminho do Listener de Usuários da Empresa do Firestore:", companyUsersCollectionRef.path);
             unsubscribeCompanyUsers = onSnapshot(companyUsersCollectionRef, (snapshot) => {
-                console.log("Firestore Company Users Snapshot received.");
+                console.log("Snapshot de Usuários da Empresa do Firestore recebido.");
                 const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setCompanyUsers(usersData);
-                console.log("Company users loaded successfully!", usersData);
+                console.log("Usuários da empresa carregados com sucesso!", usersData);
             }, (error) => {
-                console.error("Error loading company users:", error);
-                showMessage("Error loading company users from Firestore. Check permissions.", "error");
+                console.error("Erro ao carregar usuários da empresa:", error);
+                showMessage("Erro ao carregar usuários da empresa do Firestore. Verifique as permissões.", "error");
             });
         } else {
             setCompanyUsers([]);
         }
 
-        // Listener for companies list (ONLY for main admin)
+        // Listener para a lista de empresas (APENAS para o admin principal)
         if (currentUser.role === 'admin') {
             const companiesCollectionRef = collection(firestoreDb, `artifacts/${appId}/users`);
             const q = query(companiesCollectionRef, where("role", "==", "company_admin"));
 
             unsubscribeCompanies = onSnapshot(q, (snapshot) => {
-                console.log("Firestore Companies Snapshot received.");
+                console.log("Snapshot de Empresas do Firestore recebido.");
                 const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setCompanies(companiesData);
-                console.log("Companies loaded successfully!");
+                console.log("Empresas carregadas com sucesso!");
             }, (error) => {
-                console.error("Error loading companies:", error);
-                showMessage("Error loading companies from Firestore. Check permissions.", "error");
+                console.error("Erro ao carregar empresas:", error);
+                showMessage("Erro ao carregar empresas do Firestore. Verifique as permissões.", "error");
             });
         } else {
             setCompanies([]);
         }
 
+        // Função de limpeza para cancelar as inscrições dos listeners
         return () => {
             if (unsubscribeProducts) unsubscribeProducts();
             if (unsubscribeSales) unsubscribeSales();
             if (unsubscribeCompanyUsers) unsubscribeCompanyUsers();
             if (unsubscribeCompanies) unsubscribeCompanies();
-            console.log("Firestore listeners for Products, Sales, Company Users, and Companies unsubscribed.");
+            console.log("Listeners do Firestore para Produtos, Vendas, Usuários da Empresa e Empresas desinscritos.");
         };
-    }, [firestoreDb, currentUser, appId]); // Depend on firestoreDb and currentUser
+    }, [firestoreDb, currentUser, appId]); // Depende de firestoreDb e currentUser
 
-    // Calculate total whenever cart changes
+    // Efeito para calcular o total do carrinho
     useEffect(() => {
         const newTotal = cart.reduce((sum, item) => sum + (item.value * item.quantity), 0);
         setTotal(newTotal);
     }, [cart]);
 
-    // Calculate change/difference whenever total or payment amount changes
+    // Efeito para calcular troco/diferença de pagamento
     useEffect(() => {
         const paid = parseFloat(paymentAmount) || 0;
         if (paid >= total) {
@@ -367,7 +375,7 @@ const App = () => {
         }
     }, [total, paymentAmount]);
 
-    // Add product to cart
+    // Adiciona um produto ao carrinho
     const addToCart = (product) => {
         const existingItem = cart.find(item => item.id === product.id);
         if (existingItem) {
@@ -380,27 +388,27 @@ const App = () => {
         showMessage(`${product.name} adicionado ao carrinho!`);
     };
 
-    // Remove product from cart
+    // Remove um produto do carrinho
     const removeFromCart = (productId) => {
         setCart(cart.filter(item => item.id !== productId));
         showMessage("Item removido do carrinho.", "info");
     };
 
-    // Increase quantity in cart
+    // Aumenta a quantidade de um item no carrinho
     const increaseQuantity = (productId) => {
         setCart(cart.map(item =>
             item.id === productId ? { ...item, quantity: item.quantity + 1 } : item
         ));
     };
 
-    // Decrease quantity in cart
+    // Diminui a quantidade de um item no carrinho
     const decreaseQuantity = (productId) => {
         setCart(cart.map(item =>
             item.id === productId && item.quantity > 1 ? { ...item, quantity: item.quantity - 1 } : item
-        ).filter(item => item.quantity > 0)); // Remove if quantity becomes 0
+        ).filter(item => item.quantity > 0)); // Remove se a quantidade se tornar 0
     };
 
-    // Finalize sale
+    // Finaliza uma venda (dinheiro, cartão ou Pix)
     const finalizeSale = async () => {
         if (cart.length === 0) {
             showMessage("O carrinho está vazio!", "error");
@@ -411,10 +419,10 @@ const App = () => {
             return;
         }
 
-        // Calculate total cost of goods sold (CPV)
+        // Calcula o custo total dos produtos vendidos (CPV)
         const costOfGoodsSold = cart.reduce((sum, item) => sum + ((item.cost || 0) * item.quantity), 0);
 
-        // Prepare basic sale data
+        // Prepara os dados básicos da venda
         const baseSaleData = {
             items: cart.map(item => ({
                 productId: item.id,
@@ -433,29 +441,29 @@ const App = () => {
             userId: currentUser.username
         };
 
-        let saleId = null; // To store the generated sale ID
+        let saleId = null; // Para armazenar o ID da venda gerado
 
         try {
-            // Pix logic
+            // Lógica para pagamento Pix
             if (paymentMethod === 'Pix') {
                 setIsLoadingPix(true);
-                setPixQrCodeData(null); // Clear previous Pix data
+                setPixQrCodeData(null); // Limpa dados Pix anteriores
 
-                // 1. Generate a unique sale ID BEFORE any backend call
+                // 1. Gera um ID de venda único ANTES de qualquer chamada ao backend
                 saleId = doc(collection(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`)).id;
 
-                // 2. Create the sale document in Firestore with 'pending' status
-                // This ensures the document exists to be updated by the webhook
+                // 2. Cria o documento de venda no Firestore com status 'pending'
+                // Isso garante que o documento exista para ser atualizado pelo webhook
                 const pixSaleData = {
                     ...baseSaleData,
-                    status: 'pending', // Initial status for Pix
-                    payment_id: null, // Will be filled after MP response
-                    sale_id_frontend: saleId // Save the frontend generated ID
+                    status: 'pending', // Status inicial para Pix
+                    payment_id: null, // Será preenchido após a resposta do MP
+                    sale_id_frontend: saleId // Salva o ID gerado no frontend
                 };
                 await setDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId), pixSaleData);
-                showMessage("Initiating Pix payment. Awaiting QR Code...", "info");
+                showMessage("Iniciando pagamento Pix. Aguardando QR Code...", "info");
 
-                // Get ID Token from the logged-in Firebase user
+                // Obtém o ID Token do usuário Firebase logado
                 const idToken = await firebaseAuth.currentUser.getIdToken();
 
                 const response = await fetch(`${FLASK_BACKEND_URL}/pix/generate`, {
@@ -475,41 +483,41 @@ const App = () => {
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Add data:image/png;base64, prefix if not present
+                    // Adiciona o prefixo data:image/png;base64, se não estiver presente
                     if (data.qr_code_base64 && !data.qr_code_base64.startsWith('data:image/png;base64,')) {
                         data.qr_code_base64 = 'data:image/png;base64,' + data.qr_code_base64;
                     }
                     setPixQrCodeData(data);
-                    showMessage("Pix QR Code generated successfully! Awaiting payment...", "success");
+                    showMessage("QR Code Pix gerado com sucesso! Aguardando pagamento...", "success");
 
-                    // 3. Update the sale document in Firestore with Mercado Pago payment_id
-                    // This is crucial for the webhook to find and update
+                    // 3. Atualiza o documento de venda no Firestore com o payment_id do Mercado Pago
+                    // Isso é crucial para o webhook encontrar e atualizar
                     await updateDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId), {
-                        payment_id: data.payment_id // Save Mercado Pago payment ID
+                        payment_id: data.payment_id // Salva o ID de pagamento do Mercado Pago
                     });
 
-                    // Do not clear cart here, as the sale is still pending.
-                    // Cart will be cleared when the webhook confirms payment.
+                    // Não limpa o carrinho aqui, pois a venda ainda está pendente.
+                    // O carrinho será limpo quando o webhook confirmar o pagamento.
 
                 } else {
-                    // If Pix generation fails, remove the pending sale created
+                    // Se a geração do Pix falhar, remove a venda pendente criada
                     if (saleId) {
                         await deleteDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId));
                     }
-                    showMessage(`Error generating Pix: ${data.error || 'Unknown error'}`, "error");
+                    showMessage(`Erro ao gerar Pix: ${data.error || 'Erro desconhecido'}`, "error");
                 }
             } else {
-                // Logic for Cash and Card (non-Pix)
-                // Add the sale directly to Firestore with 'completed' status
+                // Lógica para Dinheiro e Cartão (não-Pix)
+                // Adiciona a venda diretamente ao Firestore com status 'completed'
                 const finalSaleData = {
                     ...baseSaleData,
-                    status: 'completed' // Final status for Cash/Card
+                    status: 'completed' // Status final para Dinheiro/Cartão
                 };
                 await addDoc(collection(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`), finalSaleData);
-                showMessage("Sale finalized successfully!");
+                showMessage("Venda finalizada com sucesso!");
             }
 
-            // Clear cart and reset states ONLY if sale is not Pix or if Pix was generated successfully
+            // Limpa o carrinho e redefine os estados APENAS se a venda não for Pix ou se o Pix foi gerado com sucesso
             if (paymentMethod !== 'Pix' || (paymentMethod === 'Pix' && pixQrCodeData)) {
                 setCart([]);
                 setPaymentAmount('');
@@ -520,14 +528,14 @@ const App = () => {
             }
 
         } catch (e) {
-            console.error("Error finalizing sale or generating Pix:", e);
-            showMessage("Error finalizing sale or generating Pix.", "error");
-            // If sale was created but Pix failed, try to remove it
+            console.error("Erro ao finalizar venda ou gerar Pix:", e);
+            showMessage("Erro ao finalizar venda ou gerar Pix.", "error");
+            // Se a venda foi criada mas o Pix falhou, tenta removê-la
             if (saleId && paymentMethod === 'Pix') {
                 try {
                     await deleteDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId));
                 } catch (deleteError) {
-                    console.error("Error removing pending sale after Pix generation failure:", deleteError);
+                    console.error("Erro ao remover venda pendente após falha na geração do Pix:", deleteError);
                 }
             }
         } finally {
@@ -535,18 +543,18 @@ const App = () => {
         }
     };
 
-    // Product Management Functions
+    // Funções de Gerenciamento de Produtos
     const handleAddProduct = async () => {
         if (!newProductName || !newProductValue || !newProductId || newProductCost === '') {
-            showMessage("Fill in all product fields!", "error");
+            showMessage("Preencha todos os campos do produto!", "error");
             return;
         }
         if (isNaN(parseFloat(newProductValue)) || isNaN(parseFloat(newProductCost))) {
-            showMessage("Product value and cost must be numbers!", "error");
+            showMessage("Valor e custo do produto devem ser números!", "error");
             return;
         }
         if (!firestoreDb || !currentUser) {
-            showMessage("Error: Database or user not available.", "error");
+            showMessage("Erro: Banco de dados ou usuário não disponível.", "error");
             return;
         }
 
@@ -557,25 +565,25 @@ const App = () => {
         };
 
         try {
-            // Reference to the document with the user-provided ID
+            // Referência ao documento com o ID fornecido pelo usuário
             const productDocRef = doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/products`, newProductId);
-            const docSnap = await getDoc(productDocRef); // Check if document already exists
+            const docSnap = await getDoc(productDocRef); // Verifica se o documento já existe
 
             if (docSnap.exists()) {
-                showMessage("Product ID already exists! Choose a unique ID.", "error");
+                showMessage("ID do produto já existe! Escolha um ID único.", "error");
                 return;
             }
 
-            // Use setDoc to create a document with the user-provided ID
+            // Usa setDoc para criar um documento com o ID fornecido pelo usuário
             await setDoc(productDocRef, productData);
-            showMessage("Product added successfully!");
+            showMessage("Produto adicionado com sucesso!");
             setNewProductName('');
             setNewProductValue('');
             setNewProductCost('');
             setNewProductId('');
         } catch (e) {
-            console.error("Error adding product: ", e);
-            showMessage("Error adding product.", "error");
+            console.error("Erro ao adicionar produto: ", e);
+            showMessage("Erro ao adicionar produto.", "error");
         }
     };
 
@@ -584,20 +592,20 @@ const App = () => {
         setNewProductName(product.name);
         setNewProductValue(product.value.toString());
         setNewProductCost(product.cost ? product.cost.toString() : '');
-        setNewProductId(product.id); // Keep the ID for display, but it's not editable
+        setNewProductId(product.id); // Mantém o ID para exibição, mas não é editável
     };
 
     const handleUpdateProduct = async () => {
         if (!editingProduct || !newProductName || !newProductValue || newProductCost === '') {
-            showMessage("Fill in all fields to update!", "error");
+            showMessage("Preencha todos os campos para atualizar!", "error");
             return;
         }
         if (isNaN(parseFloat(newProductValue)) || isNaN(parseFloat(newProductCost))) {
-            showMessage("Product value and cost must be numbers!", "error");
+            showMessage("Valor e custo do produto devem ser números!", "error");
             return;
         }
         if (!firestoreDb || !currentUser) {
-            showMessage("Error: Database or user not available.", "error");
+            showMessage("Erro: Banco de dados ou usuário não disponível.", "error");
             return;
         }
 
@@ -608,36 +616,36 @@ const App = () => {
                 value: parseFloat(newProductValue),
                 cost: parseFloat(newProductCost)
             });
-            showMessage("Product updated successfully!");
+            showMessage("Produto atualizado com sucesso!");
             setEditingProduct(null);
             setNewProductName('');
             setNewProductValue('');
             setNewProductCost('');
             setNewProductId('');
         } catch (e) {
-            console.error("Error updating product: ", e);
-            showMessage("Error updating product.", "error");
+            console.error("Erro ao atualizar produto: ", e);
+            showMessage("Erro ao atualizar produto.", "error");
         }
     };
 
     const handleDeleteProduct = async (productId) => {
         if (!firestoreDb || !currentUser) {
-            showMessage("Error: Database or user not available.", "error");
+            showMessage("Erro: Banco de dados ou usuário não disponível.", "error");
             setShowConfirmModal(false);
             return;
         }
-        setConfirmModalMessage(`Are you sure you want to delete product with ID: ${productId}?`);
+        setConfirmModalMessage(`Tem certeza que deseja excluir o produto com ID: ${productId}?`);
         setConfirmModalAction(() => async () => {
             try {
                 const docRef = doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/products`, productId);
                 await deleteDoc(docRef);
-                showMessage("Product deleted successfully!");
+                showMessage("Produto excluído com sucesso!");
             } catch (e) {
-                console.error("Error deleting product:", e);
+                console.error("Erro ao excluir produto:", e);
                 if (e.code === 'permission-denied') {
-                    showMessage("Permission error: You are not authorized to delete this product. Check permissions.", "error");
+                    showMessage("Erro de permissão: Você não está autorizado a excluir este produto. Verifique as permissões.", "error");
                 } else {
-                    showMessage("Error deleting product.", "error");
+                    showMessage("Erro ao excluir produto.", "error");
                 }
             } finally {
                 setShowConfirmModal(false);
@@ -655,13 +663,13 @@ const App = () => {
         setNewProductId('');
     };
 
-    // Calculate weekly sales report
+    // Calcula o relatório de vendas semanal
     const getWeeklySales = () => {
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
         const weeklySales = sales.filter(sale => {
-            // Ensure timestamp exists and is a Firestore Timestamp
+            // Garante que o timestamp existe e é um Firestore Timestamp
             if (sale.timestamp && typeof sale.timestamp.toDate === 'function') {
                 const saleDate = sale.timestamp.toDate();
                 return saleDate >= oneWeekAgo;
@@ -672,14 +680,14 @@ const App = () => {
         const salesByDay = {};
         weeklySales.forEach(sale => {
             const saleDate = sale.timestamp.toDate().toLocaleDateString('pt-BR');
-            // Sum profit instead of total
+            // Soma o lucro em vez do total
             if (!salesByDay[saleDate]) {
                 salesByDay[saleDate] = 0;
             }
-            salesByDay[saleDate] += sale.profit || (sale.total - (sale.costOfGoodsSold || 0)); // Ensure profit is calculated if not saved
+            salesByDay[saleDate] += sale.profit || (sale.total - (sale.costOfGoodsSold || 0)); // Garante que o lucro seja calculado se não salvo
         });
 
-        // Sort by date for display
+        // Ordena por data para exibição
         const sortedSales = Object.entries(salesByDay).sort(([dateA], [dateB]) => {
             const [dayA, monthA, yearA] = dateA.split('/').map(Number);
             const [dayB, monthB, yearB] = dateB.split('/').map(Number);
@@ -691,12 +699,12 @@ const App = () => {
         return sortedSales;
     };
 
-    // --- Flask Backend Authentication Functions ---
+    // --- Funções de Autenticação do Backend Flask ---
     const handleLogin = async (e) => {
         e.preventDefault();
-        console.log("Attempting login...");
+        console.log("Tentando login...");
         if (!firebaseAuth) {
-            showMessage("Firebase authentication is not initialized.", "error");
+            showMessage("A autenticação do Firebase não foi inicializada.", "error");
             return;
         }
         try {
@@ -709,48 +717,48 @@ const App = () => {
             });
 
             const data = await response.json();
-            console.log("Login response data:", data);
+            console.log("Dados da resposta de login:", data);
 
             if (response.ok) {
                 const firebaseToken = data.firebase_token;
                 if (firebaseToken) {
                     try {
                         await signInWithCustomToken(firebaseAuth, firebaseToken);
-                        showMessage(`Login successful! Welcome, ${data.username}.`, 'success');
-                        // currentUser state will be updated by onAuthStateChanged listener
+                        showMessage(`Login bem-sucedido! Bem-vindo(a), ${data.username}.`, 'success');
+                        // O estado currentUser será atualizado pelo listener onAuthStateChanged
                         setLoginPassword('');
-                        // Redirect to the appropriate tab after login
+                        // Redireciona para a aba apropriada após o login
                         if (data.role === 'admin') {
                             setActiveTab('gerenciar_empresas');
                         } else {
                             setActiveTab('caixa');
                         }
                     } catch (firebaseError) {
-                        console.error("Error authenticating with Firebase custom token:", firebaseError);
-                        showMessage(`Error connecting to Firebase: ${firebaseError.message}`, 'error');
+                        console.error("Erro ao autenticar com o token personalizado do Firebase:", firebaseError);
+                        showMessage(`Erro ao conectar ao Firebase: ${firebaseError.message}`, 'error');
                         setIsLoggedIn(false);
                         setCurrentUser(null);
                     }
                 } else {
-                    showMessage("Error: Firebase token not received from backend.", "error");
-                    console.error("Firebase token missing in Flask response. Full data:", data);
+                    showMessage("Erro: Token do Firebase não recebido do backend.", "error");
+                    console.error("Token do Firebase ausente na resposta do Flask. Dados completos:", data);
                 }
             } else {
-                showMessage(`Login error: ${data.error || 'Invalid credentials'}`, 'error');
+                showMessage(`Erro de login: ${data.error || 'Credenciais inválidas'}`, 'error');
             }
         } catch (error) {
-            console.error('Error connecting to backend for login:', error);
-            showMessage('Error connecting to server. Check if backend is running.', 'error');
+            console.error('Erro ao conectar ao backend para login:', error);
+            showMessage('Erro ao conectar ao servidor. Verifique se o backend está em execução.', 'error');
         }
     };
 
     const handleLogout = async () => {
-        console.log("Attempting logout...");
+        console.log("Tentando logout...");
         if (!firebaseAuth) {
-            showMessage("Firebase authentication is not initialized.", "error");
+            showMessage("A autenticação do Firebase não foi inicializada.", "error");
             return;
         }
-        // Reset states that control listeners BEFORE logging out from Firebase Auth
+        // Redefine os estados que controlam os listeners ANTES de fazer logout do Firebase Auth
         setIsLoggedIn(false);
         setCurrentUser(null);
         setLoginUsername('');
@@ -760,26 +768,27 @@ const App = () => {
         setSales([]);
         setCompanies([]);
         setCompanyUsers([]);
+        setPixQrCodeData(null); // Limpa dados do Pix ao sair
 
         try {
-            await firebaseAuth.signOut(); // Log out from Firebase Auth
-            showMessage("You have been disconnected.", "info");
-            setActiveTab('caixa'); // Return to default tab after logout
-            console.log("Logout successful.");
+            await signOut(firebaseAuth); // Faz logout do Firebase Auth
+            showMessage("Você foi desconectado(a).", "info");
+            setActiveTab('caixa'); // Retorna para a aba padrão após o logout
+            console.log("Logout bem-sucedido.");
         } catch (error) {
-            console.error("Error logging out from Firebase:", error);
-            showMessage("Error disconnecting.", "error");
+            console.error("Erro ao fazer logout do Firebase:", error);
+            showMessage("Erro ao desconectar.", "error");
         }
     };
 
-    // --- Company Management Functions (for main admin) ---
+    // --- Funções de Gerenciamento de Empresas (para o admin principal) ---
     const handleRegisterCompany = async (e) => {
         e.preventDefault();
         if (!newCompanyUsername || !newCompanyPassword || !newCompanyName) {
-            showMessage("Fill in all fields to register the company!", "error");
+            showMessage("Preencha todos os campos para registrar a empresa!", "error");
             return;
         }
-        console.log("Attempting to register company...");
+        console.log("Tentando registrar empresa...");
 
         try {
             const response = await fetch(`${FLASK_BACKEND_URL}/register_company`, {
@@ -797,34 +806,34 @@ const App = () => {
             });
 
             const data = await response.json();
-            console.log("Register company response data:", data);
+            console.log("Dados da resposta de registro de empresa:", data);
 
             if (response.ok) {
-                showMessage(`Company "${data.company_name}" (User: ${data.username}) registered successfully!`, 'success');
+                showMessage(`Empresa "${data.company_name}" (Usuário: ${data.username}) registrada com sucesso!`, 'success');
                 setNewCompanyUsername('');
                 setNewCompanyPassword('');
                 setNewCompanyName('');
                 setNewCompanyDesignTheme('default');
                 setNewCompanyMercadoPagoAccessToken('');
             } else {
-                showMessage(`Error registering company: ${data.error || 'Unknown error'}`, "error");
+                showMessage(`Erro ao registrar empresa: ${data.error || 'Erro desconhecido'}`, "error");
             }
         } catch (error) {
-            console.error('Error connecting to backend to register company:', error);
-            showMessage('Error connecting to server to register company.', 'error');
+            console.error('Erro ao conectar ao backend para registrar empresa:', error);
+            showMessage('Erro ao conectar ao servidor para registrar empresa.', 'error');
         }
     };
 
-    // Function to delete a company (login)
+    // Função para excluir uma empresa (login)
     const handleDeleteCompany = async (companyIdToDelete) => {
         if (!firebaseAuth || !firebaseAuth.currentUser) {
-            showMessage("Error: User not authenticated.", "error");
+            showMessage("Erro: Usuário não autenticado.", "error");
             setShowConfirmModal(false);
             return;
         }
-        setConfirmModalMessage(`Are you sure you want to delete company ${companyIdToDelete} and ALL its data (products, sales, etc.)? This action is irreversible!`);
+        setConfirmModalMessage(`Tem certeza que deseja excluir a empresa ${companyIdToDelete} e TODOS os seus dados (produtos, vendas, etc.)? Esta ação é irreversível!`);
         setConfirmModalAction(() => async () => {
-            console.log("Attempting to delete company:", companyIdToDelete);
+            console.log("Tentando excluir empresa:", companyIdToDelete);
             try {
                 const idToken = await firebaseAuth.currentUser.getIdToken();
                 const response = await fetch(`${FLASK_BACKEND_URL}/delete_company`, {
@@ -837,16 +846,16 @@ const App = () => {
                 });
 
                 const data = await response.json();
-                console.log("Delete company response data:", data);
+                console.log("Dados da resposta de exclusão de empresa:", data);
 
                 if (response.ok) {
-                    showMessage(`Company "${companyIdToDelete}" deleted successfully!`, 'success');
+                    showMessage(`Empresa "${companyIdToDelete}" excluída com sucesso!`, 'success');
                 } else {
-                    showMessage(`Error deleting company: ${data.error || 'Unknown error'}`, "error");
+                    showMessage(`Erro ao excluir empresa: ${data.error || 'Erro desconhecido'}`, "error");
                 }
             } catch (error) {
-                console.error('Error connecting to backend to delete company:', error);
-                showMessage('Error connecting to server to delete company.', 'error');
+                console.error('Erro ao conectar ao backend para excluir empresa:', error);
+                showMessage('Erro ao conectar ao servidor para excluir empresa.', 'error');
             } finally {
                 setShowConfirmModal(false);
             }
@@ -855,18 +864,18 @@ const App = () => {
         setShowConfirmModal(true);
     };
 
-    // --- Company User Management Functions (for company_admin) ---
+    // --- Funções de Gerenciamento de Usuários da Empresa (para company_admin) ---
     const handleAddCompanyUser = async (e) => {
         e.preventDefault();
         if (!newCompanyUserUsername || !newCompanyUserPassword || !newCompanyUserRole) {
-            showMessage("Fill in all fields to add the user!", "error");
+            showMessage("Preencha todos os campos para adicionar o usuário!", "error");
             return;
         }
         if (!currentUser || !currentUser.username || !firebaseAuth || !firebaseAuth.currentUser) {
-            showMessage("Error: Company administrator not identified or not authenticated.", "error");
+            showMessage("Erro: Administrador da empresa não identificado ou não autenticado.", "error");
             return;
         }
-        console.log("Attempting to add company user...");
+        console.log("Tentando adicionar usuário da empresa...");
 
         try {
             const idToken = await firebaseAuth.currentUser.getIdToken();
@@ -885,19 +894,19 @@ const App = () => {
             });
 
             const data = await response.json();
-            console.log("Add company user response data:", data);
+            console.log("Dados da resposta de adição de usuário da empresa:", data);
 
             if (response.ok) {
-                showMessage(`User "${data.username}" (${data.role}) added successfully!`, 'success');
+                showMessage(`Usuário "${data.username}" (${data.role}) adicionado com sucesso!`, 'success');
                 setNewCompanyUserUsername('');
                 setNewCompanyUserPassword('');
                 setNewCompanyUserRole('caixa');
             } else {
-                showMessage(`Error adding user: ${data.error || 'Unknown error'}`, "error");
+                showMessage(`Erro ao adicionar usuário: ${data.error || 'Erro desconhecido'}`, "error");
             }
         } catch (e) {
-            console.error("Error adding company user: ", e);
-            showMessage("Error connecting to server to add user.", "error");
+            console.error("Erro ao adicionar usuário da empresa: ", e);
+            showMessage("Erro ao conectar ao servidor para adicionar usuário.", "error");
         }
     };
 
@@ -905,20 +914,20 @@ const App = () => {
         setEditingCompanyUser(user);
         setNewCompanyUserUsername(user.username);
         setNewCompanyUserRole(user.role);
-        setNewCompanyUserPassword(''); // Do not load password for security
+        setNewCompanyUserPassword(''); // Não carrega a senha por segurança
     };
 
     const handleUpdateCompanyUser = async (e) => {
         e.preventDefault();
         if (!editingCompanyUser || !newCompanyUserUsername || !newCompanyUserRole) {
-            showMessage("Fill in all fields to update the user!", "error");
+            showMessage("Preencha todos os campos para atualizar o usuário!", "error");
             return;
         }
         if (!currentUser || !currentUser.username || !firebaseAuth || !firebaseAuth.currentUser) {
-            showMessage("Error: Company administrator not identified or not authenticated.", "error");
+            showMessage("Erro: Administrador da empresa não identificado ou não autenticado.", "error");
             return;
         }
-        console.log("Attempting to update company user:", editingCompanyUser.id);
+        console.log("Tentando atualizar usuário da empresa:", editingCompanyUser.id);
 
         try {
             const idToken = await firebaseAuth.currentUser.getIdToken();
@@ -930,40 +939,40 @@ const App = () => {
                 },
                 body: JSON.stringify({
                     company_id: currentUser.username,
-                    user_id: editingCompanyUser.id, // The Firestore user document ID (which is firebase_uid)
+                    user_id: editingCompanyUser.id, // O ID do documento do usuário no Firestore (que é o firebase_uid)
                     username: newCompanyUserUsername,
-                    password: newCompanyUserPassword || null, // Send null if password is not changed
+                    password: newCompanyUserPassword || null, // Envia null se a senha não for alterada
                     role: newCompanyUserRole
                 }),
             });
 
             const data = await response.json();
-            console.log("Update company user response data:", data);
+            console.log("Dados da resposta de atualização de usuário da empresa:", data);
 
             if (response.ok) {
-                showMessage(`User "${data.username}" updated successfully!`, 'success');
+                showMessage(`Usuário "${data.username}" atualizado com sucesso!`, 'success');
                 setEditingCompanyUser(null);
                 setNewCompanyUserUsername('');
                 setNewCompanyUserPassword('');
                 setNewCompanyUserRole('caixa');
             } else {
-                showMessage(`Error updating user: ${data.error || 'Unknown error'}`, "error");
+                showMessage(`Erro ao atualizar usuário: ${data.error || 'Erro desconhecido'}`, "error");
             }
         } catch (e) {
-            console.error("Error updating company user: ", e);
-            showMessage("Error connecting to server to update user.", "error");
+            console.error("Erro ao atualizar usuário da empresa: ", e);
+            showMessage("Erro ao conectar ao servidor para atualizar usuário.", "error");
         }
     };
 
     const handleDeleteCompanyUser = async (userIdToDelete) => {
         if (!currentUser || !currentUser.username || !firebaseAuth || !firebaseAuth.currentUser) {
-            showMessage("Error: Company administrator not identified or not authenticated.", "error");
+            showMessage("Erro: Administrador da empresa não identificado ou não autenticado.", "error");
             setShowConfirmModal(false);
             return;
         }
-        setConfirmModalMessage(`Are you sure you want to delete user ${userIdToDelete}? This action is irreversible!`);
+        setConfirmModalMessage(`Tem certeza que deseja excluir o usuário ${userIdToDelete}? Esta ação é irreversível!`);
         setConfirmModalAction(() => async () => {
-            console.log("Attempting to delete company user:", userIdToDelete);
+            console.log("Tentando excluir usuário da empresa:", userIdToDelete);
             try {
                 const idToken = await firebaseAuth.currentUser.getIdToken();
                 const response = await fetch(`${FLASK_BACKEND_URL}/company_users/delete`, {
@@ -974,21 +983,21 @@ const App = () => {
                     },
                     body: JSON.stringify({
                         company_id: currentUser.username,
-                        user_id: userIdToDelete // The Firestore user document ID (which is firebase_uid)
+                        user_id: userIdToDelete // O ID do documento do usuário no Firestore (que é o firebase_uid)
                     }),
                 });
 
                 const data = await response.json();
-                console.log("Delete company user response data:", data);
+                console.log("Dados da resposta de exclusão de usuário da empresa:", data);
 
                 if (response.ok) {
-                    showMessage(`User "${userIdToDelete}" deleted successfully!`, 'success');
+                    showMessage(`Usuário "${userIdToDelete}" excluído com sucesso!`, 'success');
                 } else {
-                    showMessage(`Error deleting user: ${data.error || 'Unknown error'}`, "error");
+                    showMessage(`Erro ao excluir usuário: ${data.error || 'Erro desconhecido'}`, "error");
                 }
             } catch (e) {
-                console.error("Error deleting company user:", e);
-                showMessage("Error connecting to server to delete user.", "error");
+                console.error("Erro ao excluir usuário da empresa:", e);
+                showMessage("Erro ao conectar ao servidor para excluir usuário.", "error");
             } finally {
                 setShowConfirmModal(false);
             }
@@ -1004,33 +1013,33 @@ const App = () => {
         setNewCompanyUserRole('caixa');
     };
 
-    // Function to copy Pix key to clipboard
+    // Função para copiar a chave Pix para a área de transferência
     const copyPixKeyToClipboard = (key) => {
-        // Use document.execCommand('copy') for compatibility in iframes
+        // Usa document.execCommand('copy') para compatibilidade em iframes
         const el = document.createElement('textarea');
         el.value = key;
         document.body.appendChild(el);
         el.select();
         try {
             document.execCommand('copy');
-            showMessage("Pix key copied!", "success");
+            showMessage("Chave Pix copiada!", "success");
         } catch (err) {
-            console.error('Error copying Pix key:', err);
-            showMessage("Failed to copy Pix key.", "error");
+            console.error('Erro ao copiar chave Pix:', err);
+            showMessage("Falha ao copiar chave Pix.", "error");
         }
         document.body.removeChild(el);
     };
 
-    // NEW: Function to cancel Pix payment
+    // Função para cancelar pagamento Pix
     const handleCancelPixPayment = async (paymentId) => {
         if (!currentUser || !currentUser.username || !firebaseAuth || !firebaseAuth.currentUser) {
-            showMessage("Error: Company user not identified to cancel Pix.", "error");
+            showMessage("Erro: Usuário da empresa não identificado para cancelar Pix.", "error");
             setShowConfirmModal(false);
             return;
         }
-        setConfirmModalMessage(`Are you sure you want to cancel Pix payment with ID ${paymentId}?`);
+        setConfirmModalMessage(`Tem certeza que deseja cancelar o pagamento Pix com ID ${paymentId}?`);
         setConfirmModalAction(() => async () => {
-            console.log("Attempting to cancel Pix payment:", paymentId);
+            console.log("Tentando cancelar pagamento Pix:", paymentId);
 
             try {
                 const idToken = await firebaseAuth.currentUser.getIdToken();
@@ -1047,18 +1056,18 @@ const App = () => {
                 });
 
                 const data = await response.json();
-                console.log("Cancel Pix response data:", data);
+                console.log("Dados da resposta de cancelamento de Pix:", data);
 
                 if (response.ok) {
-                    showMessage(`Pix payment ${paymentId} cancelled successfully!`, 'success');
-                    // Optional: Update sale status in Firestore on the frontend if needed
-                    // Or rely on Mercado Pago webhook to do this
+                    showMessage(`Pagamento Pix ${paymentId} cancelado com sucesso!`, 'success');
+                    // Opcional: Atualizar o status da venda no Firestore no frontend, se necessário
+                    // Ou confiar no webhook do Mercado Pago para fazer isso
                 } else {
-                    showMessage(`Error cancelling Pix: ${data.error || 'Unknown error'}`, "error");
+                    showMessage(`Erro ao cancelar Pix: ${data.error || 'Erro desconhecido'}`, "error");
                 }
             } catch (error) {
-                console.error('Error connecting to server to cancel Pix:', error);
-                showMessage('Error connecting to server to cancel Pix.', "error");
+                console.error('Erro ao conectar ao servidor para cancelar Pix:', error);
+                showMessage('Erro ao conectar ao servidor para cancelar Pix.', "error");
             } finally {
                 setShowConfirmModal(false);
             }
@@ -1067,22 +1076,22 @@ const App = () => {
         setShowConfirmModal(true);
     };
 
-    // Filter products based on search term
+    // Filtra produtos com base no termo de pesquisa
     const filteredProducts = products.filter(product =>
         product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         product.id.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    // Helper function to get Tailwind classes safely
+    // Função auxiliar para obter classes Tailwind de forma segura com base no tema
     const getThemeClasses = (element) => {
         const theme = currentUser?.design || DEFAULT_THEMES.default;
 
         const getColorClass = (prop, defaultColor) => {
             const color = theme[prop];
             if (color && typeof color === 'string' && color.includes('-')) {
-                return color; // Already a complete Tailwind class like 'bg-blue-500'
+                return color; // Já é uma classe Tailwind completa como 'bg-blue-500'
             }
-            // Fallback to a default Tailwind color class
+            // Fallback para uma classe de cor Tailwind padrão
             return defaultColor;
         };
 
@@ -1105,11 +1114,11 @@ const App = () => {
         }
     };
 
-    // Render login screen if user is not logged in
+    // Renderiza a tela de login se o usuário não estiver logado
     if (!isLoggedIn) {
         return (
             <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-gray-800">
-                {/* Background Video for login screen */}
+                {/* Vídeo de fundo para a tela de login */}
                 <video
                     autoPlay
                     loop
@@ -1117,12 +1126,12 @@ const App = () => {
                     playsInline
                     className="absolute z-0 w-full h-full object-cover"
                     src="https://videos.pexels.com/video-files/3752548/3752548-hd_1920_1080_24fps.mp4"
-                    onError={(e) => console.error("Error loading login screen background video:", e)}
+                    onError={(e) => console.error("Erro ao carregar o vídeo de fundo da tela de login:", e)}
                 >
-                    Your browser does not support the video tag.
+                    Seu navegador não suporta a tag de vídeo.
                 </video>
 
-                {/* Overlay for readability */}
+                {/* Overlay para legibilidade */}
                 <div className="absolute z-10 w-full h-full bg-black opacity-50"></div>
 
                 {message && (
@@ -1137,13 +1146,13 @@ const App = () => {
                     <form onSubmit={handleLogin}>
                         <div className="mb-4">
                             <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="loginUsername">
-                                Username:
+                                Nome de Usuário:
                             </label>
                             <input
                                 className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                                 id="loginUsername"
                                 type="text"
-                                placeholder="Username"
+                                placeholder="Nome de Usuário"
                                 value={loginUsername}
                                 onChange={(e) => setLoginUsername(e.target.value)}
                                 required
@@ -1151,7 +1160,7 @@ const App = () => {
                         </div>
                         <div className="mb-6">
                             <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="loginPassword">
-                                Password:
+                                Senha:
                             </label>
                             <input
                                 className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:shadow-outline"
@@ -1168,7 +1177,7 @@ const App = () => {
                                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition-colors duration-200"
                                 type="submit"
                             >
-                                Login
+                                Entrar
                             </button>
                         </div>
                     </form>
@@ -1177,22 +1186,22 @@ const App = () => {
         );
     }
 
-    // Render the main application if user is logged in
-    const currentDesign = currentUser?.design || DEFAULT_THEMES.default; // Ensure currentDesign is not null
+    // Renderiza a aplicação principal se o usuário estiver logado
+    const currentDesign = currentUser?.design || DEFAULT_THEMES.default; // Garante que currentDesign não seja nulo
 
-    // Determine if the "Manage Companies" tab background video should be active
+    // Determina se o vídeo de fundo da aba "Gerenciar Empresas" deve estar ativo
     const showCompanyManagementVideo = isLoggedIn && activeTab === 'gerenciar_empresas' && currentUser?.role === 'admin';
 
-    // Define background style dynamically (colors/gradient)
+    // Define o estilo de fundo dinamicamente (cores/gradiente)
     const backgroundClasses = currentDesign.dominant_color
-        ? `${currentDesign.dominant_color}` // Use dominant color if defined
-        : `${currentDesign.gradient_from || 'from-blue-50'} ${currentDesign.gradient_to || 'to-indigo-100'}`; // Fallback to gradient if no dominant color
+        ? `${currentDesign.dominant_color}` // Usa a cor dominante se definida
+        : `${currentDesign.gradient_from || 'from-blue-50'} ${currentDesign.gradient_to || 'to-indigo-100'}`; // Fallback para gradiente se não houver cor dominante
 
     return (
         <div
             className={`min-h-screen p-4 ${getThemeClasses('font_family')} flex flex-col items-center relative`}
         >
-            {/* Conditional Background Video for "Manage Companies" tab */}
+            {/* Vídeo de fundo condicional para a aba "Gerenciar Empresas" */}
             {showCompanyManagementVideo && (
                 <>
                     <video
@@ -1202,39 +1211,39 @@ const App = () => {
                         playsInline
                         className="absolute z-0 w-full h-full object-cover top-0 left-0"
                         src="https://videos.pexels.com/video-files/30163656/12934691_1920_1080_30fps.mp4"
-                        onError={(e) => console.error("Error loading Manage Companies background video:", e)}
+                        onError={(e) => console.error("Erro ao carregar o vídeo de fundo de Gerenciar Empresas:", e)}
                     >
-                        Your browser does not support the video tag for the company management background.
+                        Seu navegador não suporta a tag de vídeo para o fundo de gerenciamento de empresas.
                     </video>
-                    {/* Overlay for readability over background video */}
+                    {/* Overlay para legibilidade sobre o vídeo de fundo */}
                     <div className="absolute z-10 w-full h-full bg-black opacity-50 top-0 left-0"></div>
                 </>
             )}
 
-            {/* Conditional color/gradient background for other tabs */}
+            {/* Fundo de cor/gradiente condicional para outras abas */}
             {!showCompanyManagementVideo && (
                 <div className={`absolute z-0 w-full h-full top-0 left-0 ${backgroundClasses}`}></div>
             )}
 
-            {/* All application content with a higher z-index to be above the background */}
+            {/* Todo o conteúdo da aplicação com um z-index maior para ficar acima do fundo */}
             <div className="relative z-20 w-full flex flex-col items-center">
-                {/* User ID Display */}
+                {/* Exibição do ID do Usuário */}
                 {currentUser && (
                     <div className="absolute top-4 left-4 bg-white p-2 rounded-lg shadow-md text-sm text-gray-700">
-                        Logged in User: <span className="font-semibold">{currentUser.username}</span> (Role: {currentUser.role})
+                        Usuário Logado: <span className="font-semibold">{currentUser.username}</span> (Função: {currentUser.role})
                         {currentUser.company_name && (
-                            <span className="ml-2">Company: {currentUser.company_name}</span>
+                            <span className="ml-2">Empresa: {currentUser.company_name}</span>
                         )}
                         <button
                             onClick={handleLogout}
                             className="ml-4 bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded-full transition-colors duration-200"
                         >
-                            Logout
+                            Sair
                         </button>
                     </div>
                 )}
 
-                {/* Message Box */}
+                {/* Caixa de Mensagens */}
                 {message && (
                     <div className={`fixed top-4 right-4 p-3 rounded-lg shadow-lg text-white z-50 transition-opacity duration-300 ${message.type === 'success' ? getThemeClasses('success_color') : getThemeClasses('error_color')}`}>
                         {message.text}
@@ -1242,71 +1251,71 @@ const App = () => {
                 )}
 
                 <h1 className={`text-4xl font-extrabold ${getThemeClasses('text_color_strong')} mb-8 mt-4 rounded-xl p-3 bg-white shadow-lg`}>
-                    Cash Manager
+                    Gerenciador de Caixa
                 </h1>
 
-                {/* Navigation Tabs */}
+                {/* Abas de Navegação */}
                 <div className="flex space-x-4 mb-8 bg-white p-2 rounded-full shadow-md">
-                    {/* Cashier Tab - Visible to company_admin, manager, cashier */}
+                    {/* Aba Caixa - Visível para company_admin, gerente, caixa */}
                     {(currentUser.role === 'company_admin' || currentUser.role === 'gerente' || currentUser.role === 'caixa') && (
                         <button
                             onClick={() => setActiveTab('caixa')}
                             className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'caixa' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
-                            Cashier
+                            Caixa
                         </button>
                     )}
-                    {/* Products Tab - Visible to company_admin and manager */}
+                    {/* Aba Produtos - Visível para company_admin e gerente */}
                     {(currentUser.role === 'company_admin' || currentUser.role === 'gerente') && (
                         <button
                             onClick={() => setActiveTab('produtos')}
                             className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'produtos' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
-                            Products
+                            Produtos
                         </button>
                     )}
-                    {/* Reports Tab - Visible to company_admin and manager */}
+                    {/* Aba Relatórios - Visível para company_admin e gerente */}
                     {(currentUser.role === 'company_admin' || currentUser.role === 'gerente') && (
                         <button
                             onClick={() => setActiveTab('relatorios')}
                             className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'relatorios' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
-                            Reports
+                            Relatórios
                         </button>
                     )}
-                    {/* Manage Users Tab - Visible ONLY to company_admin */}
+                    {/* Aba Gerenciar Usuários - Visível APENAS para company_admin */}
                     {currentUser.role === 'company_admin' && (
                         <button
                             onClick={() => setActiveTab('gerenciar_usuarios')}
                             className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_usuarios' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
-                            Manage Users
+                            Gerenciar Usuários
                         </button>
                     )}
-                    {/* Manage Companies Tab - Visible ONLY to main admin */}
+                    {/* Aba Gerenciar Empresas - Visível APENAS para o admin principal */}
                     {currentUser.role === 'admin' && (
                         <button
                             onClick={() => setActiveTab('gerenciar_empresas')}
                             className={`px-6 py-3 rounded-full text-lg font-medium transition-all duration-300 ${activeTab === 'gerenciar_empresas' ? `${getThemeClasses('primary_button_bg')} text-white shadow-lg` : `${getThemeClasses('secondary_button_bg')} ${getThemeClasses('secondary_button_text')} ${getThemeClasses('secondary_button_hover_bg')}`}`}
                         >
-                            Manage Companies
+                            Gerenciar Empresas
                         </button>
                     )}
                 </div>
 
-                {/* Cashier Tab Content (Visible to company_admin, manager, cashier) */}
+                {/* Conteúdo da Aba Caixa (Visível para company_admin, gerente, caixa) */}
                 {(activeTab === 'caixa' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente' || currentUser.role === 'caixa')) && (
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full max-w-7xl">
-                        {/* Products List */}
+                        {/* Lista de Produtos */}
                         <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-xl">
                             <h2 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
-                                Available Products
+                                Produtos Disponíveis
                             </h2>
-                            {/* Search Bar */}
+                            {/* Barra de Pesquisa */}
                             <div className="mb-4">
                                 <input
                                     type="text"
-                                    placeholder="Search product by name or ID..."
+                                    placeholder="Pesquisar produto por nome ou ID..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
@@ -1314,7 +1323,7 @@ const App = () => {
                             </div>
                             <div className="max-h-96 overflow-y-auto">
                                 {filteredProducts.length === 0 ? (
-                                    <p className="text-gray-500">No products found or registered.</p>
+                                    <p className="text-gray-500">Nenhum produto encontrado ou registrado.</p>
                                 ) : (
                                     filteredProducts.map(product => (
                                         <div key={product.id} className="flex justify-between items-center bg-gray-50 p-3 mb-2 rounded-lg shadow-sm">
@@ -1326,7 +1335,7 @@ const App = () => {
                                                 onClick={() => addToCart(product)}
                                                 className={`bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md`}
                                             >
-                                                Add
+                                                Adicionar
                                             </button>
                                         </div>
                                     ))
@@ -1334,14 +1343,14 @@ const App = () => {
                             </div>
                         </div>
 
-                        {/* Cart and Payment */}
+                        {/* Carrinho e Pagamento */}
                         <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-xl flex flex-col">
                             <h2 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
-                                Shopping Cart
+                                Carrinho de Compras
                             </h2>
                             <div className="flex-grow max-h-80 overflow-y-auto mb-4">
                                 {cart.length === 0 ? (
-                                    <p className="text-gray-500">Cart is empty.</p>
+                                    <p className="text-gray-500">O carrinho está vazio.</p>
                                 ) : (
                                     cart.map(item => (
                                         <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 mb-2 rounded-lg shadow-sm">
@@ -1367,7 +1376,7 @@ const App = () => {
                                                     onClick={() => removeFromCart(item.id)}
                                                     className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full text-sm shadow-md"
                                                 >
-                                                    Remove
+                                                    Remover
                                                 </button>
                                             </div>
                                         </div>
@@ -1382,25 +1391,25 @@ const App = () => {
                                 </div>
 
                                 <div className="mb-4">
-                                    <label htmlFor="paymentMethod" className={`block ${getThemeClasses('text_color_medium')} text-lg font-semibold mb-2`}>Payment Method:</label>
+                                    <label htmlFor="paymentMethod" className={`block ${getThemeClasses('text_color_medium')} text-lg font-semibold mb-2`}>Método de Pagamento:</label>
                                     <select
                                         id="paymentMethod"
                                         value={paymentMethod}
                                         onChange={(e) => {
                                             setPaymentMethod(e.target.value);
-                                            setPixQrCodeData(null); // Clear Pix data when changing method
+                                            setPixQrCodeData(null); // Limpa dados do Pix ao mudar o método
                                         }}
                                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-lg"
                                     >
-                                        <option value="Dinheiro">Cash</option>
-                                        <option value="Cartao">Card</option>
+                                        <option value="Dinheiro">Dinheiro</option>
+                                        <option value="Cartao">Cartão</option>
                                         <option value="Pix">Pix</option>
                                     </select>
                                 </div>
 
                                 {paymentMethod === 'Dinheiro' && (
                                     <div className="mb-4">
-                                        <label htmlFor="paymentAmount" className={`block ${getThemeClasses('text_color_medium')} text-lg font-semibold mb-2`}>Amount Paid:</label>
+                                        <label htmlFor="paymentAmount" className={`block ${getThemeClasses('text_color_medium')} text-lg font-semibold mb-2`}>Valor Pago:</label>
                                         <input
                                             type="number"
                                             id="paymentAmount"
@@ -1415,25 +1424,25 @@ const App = () => {
 
                                 {paymentMethod === 'Pix' && (
                                     <div className="mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200 text-yellow-800">
-                                        <p className="font-semibold">Pix Functionality:</p>
+                                        <p className="font-semibold">Funcionalidade Pix:</p>
                                         <p className="text-sm">
-                                            To generate the Pix QR Code, the application will make a request to your Flask backend.
+                                            Para gerar o QR Code Pix, o aplicativo fará uma requisição ao seu backend Flask.
                                         </p>
                                         {isLoadingPix ? (
                                             <div className="flex justify-center items-center py-4">
                                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500"></div>
-                                                <p className="ml-3">Generating QR Code...</p>
+                                                <p className="ml-3">Gerando QR Code...</p>
                                             </div>
                                         ) : pixQrCodeData ? (
                                             <div className="mt-3 text-center">
-                                                {/* QR Code Image (using base64 from backend) */}
+                                                {/* Imagem do QR Code (usando base64 do backend) */}
                                                 <img
                                                     src={pixQrCodeData.qr_code_base64 || `https://placehold.co/150x150/E0F2F7/000000?text=QR+Code+Pix`}
-                                                    alt="Pix QR Code"
+                                                    alt="QR Code Pix"
                                                     className="mx-auto rounded-lg shadow-md w-64 h-64"
                                                 />
                                                 <p className="mt-2 text-sm text-gray-700">
-                                                    "Copy and paste" key:
+                                                    Chave "Copia e Cola":
                                                 </p>
                                                 <div className="flex items-center justify-center mt-1">
                                                     <input
@@ -1446,32 +1455,32 @@ const App = () => {
                                                         onClick={() => copyPixKeyToClipboard(pixQrCodeData.copy_paste_key)}
                                                         className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-r-lg text-sm"
                                                     >
-                                                        Copy
+                                                        Copiar
                                                     </button>
                                                 </div>
-                                                {/* NEW: Cancel Pix Payment Button */}
+                                                {/* Botão para Cancelar Pagamento Pix */}
                                                 {pixQrCodeData.payment_id && (
                                                     <button
                                                         onClick={() => handleCancelPixPayment(pixQrCodeData.payment_id)}
                                                         className="mt-4 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm shadow-md"
                                                     >
-                                                        Cancel Pix Payment
+                                                        Cancelar Pagamento Pix
                                                     </button>
                                                 )}
                                                 <p className="mt-2 text-xs text-gray-600">
-                                                    * In a real scenario, the sale would be finalized after Pix payment confirmation via webhook.
+                                                    * Em um cenário real, a venda seria finalizada após a confirmação do pagamento Pix via webhook.
                                                 </p>
                                             </div>
                                         ) : (
                                             <div className="mt-3 text-center">
-                                                {/* Placeholder for QR Code before generation */}
+                                                {/* Placeholder para QR Code antes da geração */}
                                                 <img
                                                     src="https://placehold.co/150x150/E0F2F7/000000?text=QR+Code+Pix"
                                                     alt="Placeholder QR Code Pix"
                                                     className="mx-auto rounded-lg shadow-md w-64 h-64"
                                                 />
                                                 <p className="mt-2 text-xs text-gray-600">
-                                                    Click "Finalize Sale" to generate the QR Code.
+                                                    Clique em "Finalizar Venda" para gerar o QR Code.
                                                 </p>
                                             </div>
                                         )}
@@ -1479,11 +1488,11 @@ const App = () => {
                                 )}
 
                                 <div className={`flex justify-between items-center text-xl ${getThemeClasses('text_color_medium')} mb-2`}>
-                                    <span>Difference:</span>
+                                    <span>Diferença:</span>
                                     <span className="font-bold text-red-600">R$ {difference.toFixed(2)}</span>
                                 </div>
                                 <div className={`flex justify-between items-center text-xl ${getThemeClasses('text_color_medium')} mb-4`}>
-                                    <span>Change:</span>
+                                    <span>Troco:</span>
                                     <span className="font-bold text-green-600">R$ {change.toFixed(2)}</span>
                                 </div>
 
@@ -1491,22 +1500,22 @@ const App = () => {
                                     onClick={finalizeSale}
                                     className={`w-full ${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white text-xl font-bold py-4 rounded-xl transition-all duration-300 shadow-lg transform hover:scale-105`}
                                 >
-                                    Finalize Sale
+                                    Finalizar Venda
                                 </button>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Products Tab Content (Visible to company_admin and manager) */}
+                {/* Conteúdo da Aba Produtos (Visível para company_admin e gerente) */}
                 {(activeTab === 'produtos' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente')) && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
                         <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
-                            {editingProduct ? 'Edit Product' : 'Add New Product'}
+                            {editingProduct ? 'Editar Produto' : 'Adicionar Novo Produto'}
                         </h2>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div>
-                                <label htmlFor="newProductId" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Product ID:</label>
+                                <label htmlFor="newProductId" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>ID do Produto:</label>
                                 <input
                                     type="text"
                                     id="newProductId"
@@ -1514,22 +1523,22 @@ const App = () => {
                                     onChange={(e) => setNewProductId(e.target.value)}
                                     placeholder="Ex: PROD001"
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                                    disabled={!!editingProduct} // Disable ID input when editing
+                                    disabled={!!editingProduct} // Desabilita a entrada de ID ao editar
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newProductName" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Product Name:</label>
+                                <label htmlFor="newProductName" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome do Produto:</label>
                                 <input
                                     type="text"
                                     id="newProductName"
                                     value={newProductName}
                                     onChange={(e) => setNewProductName(e.target.value)}
-                                    placeholder="Ex: Soda Can"
+                                    placeholder="Ex: Refrigerante"
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newProductValue" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Value (R$):</label>
+                                <label htmlFor="newProductValue" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Valor (R$):</label>
                                 <input
                                     type="number"
                                     id="newProductValue"
@@ -1540,9 +1549,9 @@ const App = () => {
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
-                            {/* Field for Product Cost */}
+                            {/* Campo para Custo do Produto */}
                             <div>
-                                <label htmlFor="newProductCost" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Cost (R$):</label>
+                                <label htmlFor="newProductCost" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Custo (R$):</label>
                                 <input
                                     type="number"
                                     id="newProductCost"
@@ -1561,13 +1570,13 @@ const App = () => {
                                         onClick={handleUpdateProduct}
                                         className={`bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                     >
-                                        Update Product
+                                        Atualizar Produto
                                     </button>
                                     <button
                                         onClick={cancelEdit}
                                         className={`bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                     >
-                                        Cancel
+                                        Cancelar
                                     </button>
                                 </>
                             ) : (
@@ -1575,38 +1584,38 @@ const App = () => {
                                     onClick={handleAddProduct}
                                     className={`${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                 >
-                                    Add Product
+                                    Adicionar Produto
                                 </button>
                             )}
                         </div>
 
                         <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
-                            Product List
+                            Lista de Produtos
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
                             {products.length === 0 ? (
-                                <p className="text-gray-500">No products registered.</p>
+                                <p className="text-gray-500">Nenhum produto registrado.</p>
                             ) : (
                                 <ul className="space-y-3">
                                     {products.map(product => (
                                         <li key={product.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Product: {product.name} (ID: {product.id})</p>
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Produto: {product.name} (ID: {product.id})</p>
                                                 <p className={`${getThemeClasses('highlight_color')} font-bold text-xl`}>R$ {product.value.toFixed(2)}</p>
-                                                <p className="text-gray-600 text-sm">Cost: R$ {product.cost ? product.cost.toFixed(2) : '0.00'}</p>
+                                                <p className="text-gray-600 text-sm">Custo: R$ {product.cost ? product.cost.toFixed(2) : '0.00'}</p>
                                             </div>
                                             <div className="flex space-x-3">
                                                 <button
                                                     onClick={() => handleEditProduct(product)}
                                                     className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
                                                 >
-                                                    Edit
+                                                    Editar
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeleteProduct(product.id)}
                                                     className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
                                                 >
-                                                    Delete
+                                                    Excluir
                                                 </button>
                                             </div>
                                         </li>
@@ -1617,21 +1626,21 @@ const App = () => {
                     </div>
                 )}
 
-                {/* Reports Tab Content (Visible to company_admin and manager) */}
+                {/* Conteúdo da Aba Relatórios (Visível para company_admin e gerente) */}
                 {(activeTab === 'relatorios' && (currentUser.role === 'company_admin' || currentUser.role === 'gerente')) && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
                         <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
-                            Weekly Profit Report
+                            Relatório de Lucro Semanal
                         </h2>
                         {sales.length === 0 ? (
-                            <p className="text-gray-500">No sales registered yet.</p>
+                            <p className="text-gray-500">Nenhuma venda registrada ainda.</p>
                         ) : (
                             <div className="max-h-96 overflow-y-auto">
                                 <table className="min-w-full bg-white rounded-lg shadow-md">
                                     <thead className={`${getThemeClasses('primary_button_bg')} text-white`}>
                                         <tr>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Date</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Total Profit</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Data</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Lucro Total</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
@@ -1646,29 +1655,29 @@ const App = () => {
                                     </tbody>
                                 </table>
                                 {getWeeklySales().length === 0 && (
-                                    <p className="text-gray-500 mt-4">No sales in the last week.</p>
+                                    <p className="text-gray-500 mt-4">Nenhuma venda na última semana.</p>
                                 )}
                             </div>
                         )}
 
                         <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
-                            All Sales
+                            Todas as Vendas
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
                             {sales.length === 0 ? (
-                                <p className="text-gray-500">No sales registered yet.</p>
+                                <p className="text-gray-500">Nenhuma venda registrada ainda.</p>
                             ) : (
                                 <table className="min-w-full bg-white rounded-lg shadow-md">
                                     <thead className={`${getThemeClasses('primary_button_bg')} text-white`}>
                                         <tr>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Date/Time</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Items</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Data/Hora</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Itens</th>
                                             <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Total</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Cost</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Profit</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Method</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Custo</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Lucro</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Método</th>
                                             <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Status</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Actions</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold uppercase">Ações</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
@@ -1683,16 +1692,16 @@ const App = () => {
                                                     ))}
                                                 </td>
                                                 <td className="py-3 px-4 text-green-600 font-bold">R$ {sale.total.toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-gray-600">R$ ${(sale.costOfGoodsSold || 0).toFixed(2)}</td>
+                                                <td className="py-3 px-4 text-gray-600">R$ {(sale.costOfGoodsSold || 0).toFixed(2)}</td>
                                                 <td className="py-3 px-4 text-purple-600 font-bold">R$ ${(sale.profit || (sale.total - (sale.costOfGoodsSold || 0))).toFixed(2)}</td>
                                                 <td className={`py-3 px-4 ${getThemeClasses('text_color_medium')}`}>{sale.paymentMethod}</td>
                                                 <td className={`py-3 px-4 ${getThemeClasses('text_color_medium')}`}>
                                                     {sale.paymentMethod === 'Pix' && sale.status === 'pending' ? (
-                                                        <span className="text-yellow-600 font-semibold">Pending</span>
+                                                        <span className="text-yellow-600 font-semibold">Pendente</span>
                                                     ) : sale.paymentMethod === 'Pix' && sale.status === 'approved' ? (
-                                                        <span className="text-green-600 font-semibold">Approved</span>
+                                                        <span className="text-green-600 font-semibold">Aprovado</span>
                                                     ) : sale.paymentMethod === 'Pix' && sale.status === 'cancelled' ? (
-                                                        <span className="text-red-600 font-semibold">Cancelled</span>
+                                                        <span className="text-red-600 font-semibold">Cancelado</span>
                                                     ) : (
                                                         <span className="text-gray-600">N/A</span>
                                                     )}
@@ -1703,7 +1712,7 @@ const App = () => {
                                                             onClick={() => handleCancelPixPayment(sale.payment_id)}
                                                             className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-full text-sm shadow-md"
                                                         >
-                                                            Cancel Pix
+                                                            Cancelar Pix
                                                         </button>
                                                     )}
                                                 </td>
@@ -1716,40 +1725,40 @@ const App = () => {
                     </div>
                 )}
 
-                {/* Manage Users Tab Content (Visible ONLY to company_admin) */}
+                {/* Conteúdo da Aba Gerenciar Usuários (Visível APENAS para company_admin) */}
                 {activeTab === 'gerenciar_usuarios' && currentUser.role === 'company_admin' && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
                         <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
-                            {editingCompanyUser ? 'Edit Company User' : 'Add New Company User'}
+                            {editingCompanyUser ? 'Editar Usuário da Empresa' : 'Adicionar Novo Usuário da Empresa'}
                         </h2>
                         <form onSubmit={editingCompanyUser ? handleUpdateCompanyUser : handleAddCompanyUser} className="space-y-4 mb-8">
                             <div>
-                                <label htmlFor="newCompanyUserUsername" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Username:</label>
+                                <label htmlFor="newCompanyUserUsername" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome de Usuário:</label>
                                 <input
                                     type="text"
                                     id="newCompanyUserUsername"
                                     value={newCompanyUserUsername}
                                     onChange={(e) => setNewCompanyUserUsername(e.target.value)}
-                                    placeholder="Ex: cashier01"
+                                    placeholder="Ex: caixa01"
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                     required
-                                    disabled={!!editingCompanyUser} // Disable username editing
+                                    disabled={!!editingCompanyUser} // Desabilita a edição do nome de usuário
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyUserPassword" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Password:</label>
+                                <label htmlFor="newCompanyUserPassword" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Senha:</label>
                                 <input
                                     type="password"
                                     id="newCompanyUserPassword"
                                     value={newCompanyUserPassword}
                                     onChange={(e) => setNewCompanyUserPassword(e.target.value)}
-                                    placeholder={editingCompanyUser ? "Leave blank to keep current password" : "********"}
+                                    placeholder={editingCompanyUser ? "Deixe em branco para manter a senha atual" : "********"}
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                                    required={!editingCompanyUser} // Password is required only when adding
+                                    required={!editingCompanyUser} // A senha é obrigatória apenas ao adicionar
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyUserRole" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Role:</label>
+                                <label htmlFor="newCompanyUserRole" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Função:</label>
                                 <select
                                     id="newCompanyUserRole"
                                     value={newCompanyUserRole}
@@ -1757,9 +1766,9 @@ const App = () => {
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                     required
                                 >
-                                    <option value="caixa">Cashier</option>
-                                    <option value="gerente">Manager</option>
-                                    {/* company_admin cannot create another company_admin */}
+                                    <option value="caixa">Caixa</option>
+                                    <option value="gerente">Gerente</option>
+                                    {/* company_admin não pode criar outro company_admin */}
                                 </select>
                             </div>
                             <div className="flex justify-end space-x-4">
@@ -1769,14 +1778,14 @@ const App = () => {
                                             type="submit"
                                             className={`bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                         >
-                                            Update User
+                                            Atualizar Usuário
                                         </button>
                                         <button
                                             type="button"
                                             onClick={cancelEditCompanyUser}
                                             className={`bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                         >
-                                            Cancel
+                                            Cancelar
                                         </button>
                                     </>
                                 ) : (
@@ -1784,26 +1793,26 @@ const App = () => {
                                         type="submit"
                                         className={`${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                 >
-                                        Add User
+                                        Adicionar Usuário
                                     </button>
                                 )}
                             </div>
                         </form>
 
                         <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
-                            Company Users
+                            Usuários da Empresa
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
                             {companyUsers.length === 0 ? (
-                                <p className="text-gray-500">No users registered for this company.</p>
+                                <p className="text-gray-500">Nenhum usuário registrado para esta empresa.</p>
                             ) : (
                                 <ul className="space-y-3">
                                     {companyUsers.map(user => (
                                         <li key={user.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>User: {user.username}</p>
-                                                <p className="text-gray-600 text-sm">Role: {user.role}</p>
-                                                {/* Optional: Show firebase_uid for debugging */}
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Usuário: {user.username}</p>
+                                                <p className="text-gray-600 text-sm">Função: {user.role}</p>
+                                                {/* Opcional: Exibir firebase_uid para depuração */}
                                                 {/* <p className="text-gray-400 text-xs">UID: {user.firebase_uid}</p> */}
                                             </div>
                                             <div className="flex space-x-3">
@@ -1811,13 +1820,13 @@ const App = () => {
                                                     onClick={() => handleEditCompanyUser(user)}
                                                     className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
                                                 >
-                                                    Edit
+                                                    Editar
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeleteCompanyUser(user.id)}
                                                     className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
                                                 >
-                                                    Delete
+                                                    Excluir
                                                 </button>
                                             </div>
                                         </li>
@@ -1828,27 +1837,27 @@ const App = () => {
                     </div>
                 )}
 
-                {/* Manage Companies Tab Content (Visible ONLY to main admin) */}
+                {/* Conteúdo da Aba Gerenciar Empresas (Visível APENAS para o admin principal) */}
                 {activeTab === 'gerenciar_empresas' && currentUser.role === 'admin' && (
                     <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
                         <h2 className={`text-3xl font-bold ${getThemeClasses('text_color_medium')} mb-6 pb-3 border-b-2 ${getThemeClasses('border_color')}`}>
-                            Register New Company
+                            Registrar Nova Empresa
                         </h2>
                         <form onSubmit={handleRegisterCompany} className="space-y-4 mb-8">
                             <div>
-                                <label htmlFor="newCompanyUsername" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Company Username (ID):</label>
+                                <label htmlFor="newCompanyUsername" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome de Usuário da Empresa (ID):</label>
                                 <input
                                     type="text"
                                     id="newCompanyUsername"
                                     value={newCompanyUsername}
                                     onChange={(e) => setNewCompanyUsername(e.target.value)}
-                                    placeholder="Ex: company_abc"
+                                    placeholder="Ex: empresa_abc"
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                     required
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyPassword" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Company Password:</label>
+                                <label htmlFor="newCompanyPassword" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Senha da Empresa:</label>
                                 <input
                                     type="password"
                                     id="newCompanyPassword"
@@ -1860,28 +1869,28 @@ const App = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyName" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Full Company Name:</label>
+                                <label htmlFor="newCompanyName" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Nome Completo da Empresa:</label>
                                 <input
                                     type="text"
                                     id="newCompanyName"
                                     value={newCompanyName}
                                     onChange={(e) => setNewCompanyName(e.target.value)}
-                                    placeholder="Ex: ABC Commerce and Services Ltd."
+                                    placeholder="Ex: ABC Comércio e Serviços Ltda."
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                     required
                                 />
                             </div>
                             <div>
-                                <label htmlFor="newCompanyDesignTheme" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Design Theme (Colors/Fonts):</label>
+                                <label htmlFor="newCompanyDesignTheme" className={`block ${getThemeClasses('text_color_medium')} font-semibold mb-2`}>Tema de Design (Cores/Fontes):</label>
                                 <select
                                     id="newCompanyDesignTheme"
                                     value={newCompanyDesignTheme}
                                     onChange={(e) => setNewCompanyDesignTheme(e.target.value)}
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                 >
-                                    <option value="default">Default</option>
-                                    <option value="corporate">Corporate</option>
-                                    <option value="vibrant">Vibrant</option>
+                                    <option value="default">Padrão</option>
+                                    <option value="corporate">Corporativo</option>
+                                    <option value="vibrant">Vibrante</option>
                                 </select>
                             </div>
                             <div>
@@ -1891,7 +1900,7 @@ const App = () => {
                                     id="newCompanyMercadoPagoAccessToken"
                                     value={newCompanyMercadoPagoAccessToken}
                                     onChange={(e) => setNewCompanyMercadoPagoAccessToken(e.target.value)}
-                                    placeholder="MP Token (ex: APP_USR-xxxxxxxxxxxx)"
+                                    placeholder="Token MP (ex: APP_USR-xxxxxxxxxxxx)"
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
@@ -1901,32 +1910,32 @@ const App = () => {
                                     onClick={handleRegisterCompany}
                                     className={`bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-md transform hover:scale-105`}
                                 >
-                                    Register Company
+                                    Registrar Empresa
                                 </button>
                             </div>
                         </form>
 
                         <h3 className={`text-2xl font-bold ${getThemeClasses('text_color_medium')} mt-10 mb-4 pb-2 border-b-2 ${getThemeClasses('border_color')}`}>
-                            Registered Companies
+                            Empresas Registradas
                         </h3>
                         <div className="max-h-96 overflow-y-auto">
                             {companies.length === 0 ? (
-                                <p className="text-gray-500">No companies registered yet.</p>
+                                <p className="text-gray-500">Nenhuma empresa registrada ainda.</p>
                             ) : (
                                 <ul className="space-y-3">
                                     {companies.map(company => (
                                         <li key={company.id} className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm">
                                             <div>
-                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Name: {company.company_name}</p>
-                                                <p className="text-gray-600 text-sm">User (ID): {company.id}</p>
-                                                <p className="text-gray-600 text-sm">Theme: {company.design_theme}</p>
+                                                <p className={`font-semibold ${getThemeClasses('text_color_strong')} text-lg`}>Nome: {company.company_name}</p>
+                                                <p className="text-gray-600 text-sm">Usuário (ID): {company.id}</p>
+                                                <p className="text-gray-600 text-sm">Tema: {company.design_theme}</p>
                                             </div>
                                             <div className="flex space-x-3">
                                                 <button
                                                     onClick={() => handleDeleteCompany(company.id)}
                                                     className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full transition-colors duration-200 shadow-md"
                                                 >
-                                                    Delete Company
+                                                    Excluir Empresa
                                                 </button>
                                             </div>
                                         </li>
