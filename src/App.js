@@ -93,7 +93,6 @@ const App = () => {
     console.log("O componente App está sendo renderizado...");
 
     // Estados para instâncias do Firebase
-    const [firebaseApp, setFirebaseApp] = useState(null);
     const [firebaseAuth, setFirebaseAuth] = useState(null);
     const [firestoreDb, setFirestoreDb] = useState(null);
 
@@ -205,8 +204,6 @@ const App = () => {
                 const auth = getAuth(app);
                 const db = getFirestore(app);
 
-                // eslint-disable-next-line no-unused-vars
-                setFirebaseApp(app); // Esta linha é onde o aviso ESLint ocorre, mas é intencional.
                 setFirebaseAuth(auth);
                 setFirestoreDb(db);
                 setAppId(currentAppId);
