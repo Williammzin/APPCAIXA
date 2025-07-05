@@ -157,6 +157,9 @@ const App = () => {
     const [confirmModalAction, setConfirmModalAction] = useState(null);
     const [confirmModalPayload, setConfirmModalPayload] = useState(null);
 
+    // Novo estado para controlar status do Pix da venda atual
+    const [pixStatus, setPixStatus] = useState(null);
+
     // Função para exibir mensagens na interface
     const showMessage = (msg, type = 'success') => {
         setMessage({ text: msg, type });
@@ -1101,6 +1104,52 @@ const App = () => {
         }
     };
 
+    // Efeito para escutar atualizações do status Pix da venda pendente
+    useEffect(() => {
+        if (
+            firestoreDb &&
+            currentUser &&
+            pixQrCodeData &&
+            pixQrCodeData.sale_id_frontend // O sale_id gerado no frontend
+        ) {
+            // Referência ao documento da venda Pix pendente
+            const saleDocRef = doc(
+                firestoreDb,
+                `artifacts/${appId}/users/${currentUser.username}/sales`,
+                pixQrCodeData.sale_id_frontend
+            );
+            // Listener para o documento da venda Pix
+            const unsubscribe = onSnapshot(saleDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const saleData = docSnap.data();
+                    if (saleData.status !== pixStatus) {
+                        setPixStatus(saleData.status);
+                        // Notifica o usuário sobre a mudança de status
+                        if (saleData.status === 'approved') {
+                            showMessage('Pagamento Pix aprovado! Venda finalizada.', 'success');
+                            // Limpa carrinho e estados relacionados
+                            setCart([]);
+                            setPaymentAmount('');
+                            setChange(0);
+                            setDifference(0);
+                            setPaymentMethod('Dinheiro');
+                            setPixQrCodeData(null);
+                            setPixStatus(null);
+                        } else if (saleData.status === 'cancelled') {
+                            showMessage('Pagamento Pix cancelado.', 'error');
+                            setPixQrCodeData(null);
+                            setPixStatus(null);
+                        } else if (saleData.status === 'pending') {
+                            showMessage('Aguardando pagamento Pix...', 'info');
+                        }
+                    }
+                }
+            });
+            return () => unsubscribe();
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [firestoreDb, currentUser, pixQrCodeData]);
+
     // Renderiza a tela de login se o usuário não estiver logado
     if (!isLoggedIn) {
         return (
@@ -1108,7 +1157,7 @@ const App = () => {
                 {/* Vídeo de fundo para a tela de login */}
                 <video
                     autoPlay
-                    loop
+                    loop={true}
                     muted
                     playsInline
                     className="absolute z-0 w-full h-full object-cover"
@@ -1193,7 +1242,7 @@ const App = () => {
                 <>
                     <video
                         autoPlay
-                        loop
+                        loop={true}
                         muted
                         playsInline
                         className="absolute z-0 w-full h-full object-cover top-0 left-0"
@@ -1412,6 +1461,20 @@ const App = () => {
                                         <p className="text-sm">
                                             Para gerar o QR Code Pix, o aplicativo fará uma requisição ao seu backend Flask.
                                         </p>
+                                        {/* Mostra status do Pix se houver */}
+                                        {pixStatus && (
+                                            <div className="my-2">
+                                                {pixStatus === 'pending' && (
+                                                    <span className="text-yellow-600 font-semibold">Status: Aguardando pagamento...</span>
+                                                )}
+                                                {pixStatus === 'approved' && (
+                                                    <span className="text-green-600 font-semibold">Status: Pagamento aprovado!</span>
+                                                )}
+                                                {pixStatus === 'cancelled' && (
+                                                    <span className="text-red-600 font-semibold">Status: Pagamento cancelado.</span>
+                                                )}
+                                            </div>
+                                        )}
                                         {isLoadingPix ? (
                                             <div className="flex justify-center items-center py-4">
                                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500"></div>

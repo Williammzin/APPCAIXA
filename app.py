@@ -578,116 +578,103 @@ def generate_pix_qr_code():
         return jsonify({"error": error_message}), response.status_code if response is not None else 500
     # --- FIM DA REQUISIÇÃO REAL PARA A API DO MERCADO PAGO ---
 
-@app.route('/mercadopago-webhook', methods=['POST'])
-# @jwt_required() # Removido por enquanto, pois webhooks do MP não usam JWT por padrão
+@app.route('/mercadopago-webhook', methods=['POST', 'GET'])
 def mercadopago_webhook():
     """
     Endpoint para receber notificações de webhook do Mercado Pago.
     Atualiza o status da venda correspondente no Firestore.
+    Segue as melhores práticas da documentação oficial do Mercado Pago.
     """
-    # Obtenha o ID do pagamento do Mercado Pago da notificação
-    payment_id = request.args.get('id') or request.json.get('data', {}).get('id')
-    topic = request.args.get('topic') or request.json.get('type')
+    # Mercado Pago pode enviar notificações via GET ou POST
+    # https://www.mercadopago.com.br/developers/pt/docs/notifications/webhooks/handling-notifications
+
+    # 1. Extrai o payment_id e topic/type da notificação
+    payment_id = None
+    topic = None
+
+    if request.method == 'GET':
+        payment_id = request.args.get('id')
+        topic = request.args.get('topic')
+    elif request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        payment_id = body.get('data', {}).get('id') or body.get('id')
+        topic = body.get('type') or body.get('topic')
 
     if not payment_id or topic != 'payment':
-        print(f"Notificação inválida: payment_id={payment_id}, topic={topic}")
+        print(f"[Webhook] Notificação inválida: payment_id={payment_id}, topic={topic}")
         return jsonify({"message": "Notificação inválida"}), 400
 
-    print(f"Notificação de pagamento recebida para o ID: {payment_id}")
-    print(f"Notificação de Webhook do Mercado Pago recebida (corpo): {request.json}")
-    print(f"Notificação de Webhook do Mercado Pago recebida (query params): {request.args}")
+    print(f"[Webhook] Notificação recebida: payment_id={payment_id}, topic={topic}, method={request.method}")
+
+    # 2. Busca o payment_info na API do Mercado Pago para obter external_reference (sale_id)
+    # Como não sabemos a empresa ainda, precisamos tentar todos os tokens cadastrados
+    # (boa prática: use um token master ou salve um mapeamento payment_id->empresa no Firestore)
+    # Aqui, tentamos todos os tokens das empresas cadastradas até encontrar o payment_id correto
 
     # FIX: Alterado o valor padrão para 'local-app-id' para corresponder ao frontend
     app_id = os.getenv("APP_ID", "local-app-id")
+    users_collection = db.collection('artifacts').document(app_id).collection('users')
+    company_id = None
+    mp_access_token = None
+    payment_info = None
 
+    # Busca todos os company_admins para tentar encontrar o payment_id
     try:
-        # 1. Obter detalhes do pagamento do Mercado Pago
-        # Você precisará do access_token do Mercado Pago para a empresa específica.
-        # Para isso, precisamos mapear o payment_id para a empresa.
-        # O external_reference do Mercado Pago é o sale_id que o frontend enviou.
-        # Precisamos de uma forma de encontrar a empresa a partir do payment_id ou external_reference.
-        # Uma abordagem robusta seria:
-        # a) No /pix/generate, salvar o payment_id e o company_id no Firestore junto com o sale_id.
-        # b) No webhook, usar o payment_id para buscar esse registro e obter o company_id.
-        # C) Ou, como estamos fazendo agora, buscar a venda pelo external_reference e extrair o company_id dela.
-
-        # Primeiro, vamos tentar encontrar a venda usando o payment_id para obter o company_id
-        # Isso pressupõe que o payment_id foi salvo na venda quando o Pix foi gerado.
-        # Como o Mercado Pago envia o external_reference (nosso sale_id) na resposta da API de pagamento,
-        # podemos usá-lo para buscar a venda.
-
-        # Para fins de demonstração, e com base nos seus logs, vou assumir que o `company_id`
-        # para esta transação é "Supermercado".
-        # ATENÇÃO: Em um sistema de produção, você PRECISA de uma lógica para derivar o company_id
-        # de forma segura e confiável a partir da notificação do Mercado Pago.
-        # Isso pode ser feito:
-        # 1. Incluindo o company_id na `notification_url` como um parâmetro de query (ex: /webhook?company_id=abc)
-        # 2. Mapeando o `collector_id` do Mercado Pago (presente na resposta do payment_info) para o seu `company_id` no Firestore.
-        # 3. No caso de um `external_reference` (que é o `sale_id` do frontend), você pode buscar a venda por esse ID
-        #    e então obter o `userId` (company_id) da venda.
-
-        # Vamos buscar o payment_info primeiro para obter o external_reference e o collector_id
-        # Para isso, precisamos de um access_token. Se não tivermos o company_id ainda,
-        # precisaremos de um access_token "mestre" ou um mecanismo para buscar o token
-        # da empresa correta.
-        
-        # Para o seu caso, o log mostra 'company_id: Supermercado', então vamos usá-lo como base
-        company_id = "Supermercado" # Substitua pela sua lógica real de obtenção do company_id
-
-        company_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id)
-        company_doc = company_doc_ref.get()
-
-        if not company_doc.exists:
-            print(f"ERRO: Empresa {company_id} não encontrada no Firestore para o webhook.")
-            return jsonify({"error": "Empresa não encontrada"}), 404
-
-        mp_access_token = company_doc.to_dict().get('mercado_pago_access_token')
-        if not mp_access_token:
-            print(f"ERRO: Token de acesso do Mercado Pago não configurado para a empresa {company_id} no webhook.")
-            return jsonify({"error": "Token Mercado Pago não configurado"}), 500
-
-        sdk = mercadopago.SDK(mp_access_token)
-        payment_info = sdk.payment().get(payment_id)
-
-        if payment_info["status"] == 200:
-            payment_status = payment_info["response"]["status"]
-            # O external_reference é o sale_id que o frontend enviou
-            external_reference = payment_info["response"].get("external_reference") 
-
-            print(f"Status do pagamento {payment_id} via API do Mercado Pago: {payment_status}")
-
-            if not external_reference:
-                print(f"ERRO: external_reference (sale_id) não encontrado na resposta do Mercado Pago para payment_id: {payment_id}")
-                return jsonify({"error": "ID da venda não encontrado no pagamento do Mercado Pago"}), 400
-
-            # 2. Encontrar a venda na coleção 'sales' usando o external_reference (sale_id)
-            sale_doc_ref = db.collection('artifacts').document(app_id).collection('users').document(company_id).collection('sales').document(external_reference)
-            sale_doc = sale_doc_ref.get()
-
-            if sale_doc.exists:
-                # 3. Atualizar o status da venda no Firestore
-                current_sale_data = sale_doc.to_dict()
-                if current_sale_data.get('status') != payment_status: # Evita atualizações desnecessárias
-                    sale_doc_ref.update({
-                        'status': payment_status,
-                        'payment_id': payment_id, # Garante que o payment_id do MP esteja salvo na venda
-                        'date_updated': firestore.SERVER_TIMESTAMP # Adiciona um timestamp de atualização
-                    })
-                    print(f"Venda {external_reference} da empresa {company_id} atualizada para '{payment_status}' via webhook.")
-                else:
-                    print(f"Status da venda {external_reference} já é '{payment_status}'. Nenhuma atualização necessária.")
-
-                # NÃO REMOVA NENHUM DOCUMENTO AQUI. A venda na coleção 'sales' é o registro permanente.
-                return jsonify({"message": "Webhook processado com sucesso"}), 200
-            else:
-                print(f"ERRO: Venda {external_reference} não encontrada no Firestore para atualização. Pode ser um ID inválido ou timing issue.")
-                return jsonify({"error": "Venda não encontrada no Firestore"}), 404
-        else:
-            print(f"ERRO ao obter detalhes do pagamento {payment_id} do Mercado Pago: {payment_info['status']} - {payment_info['response']}")
-            return jsonify({"error": "Erro ao consultar Mercado Pago"}), 500
-
+        company_admin_docs = users_collection.where('role', '==', 'company_admin').stream()
+        for company_doc in company_admin_docs:
+            company_data = company_doc.to_dict()
+            token = company_data.get('mercado_pago_access_token')
+            if not token:
+                continue
+            try:
+                sdk = mercadopago.SDK(token)
+                payment_info_resp = sdk.payment().get(payment_id)
+                if payment_info_resp["status"] == 200 and payment_info_resp["response"].get("id") == int(payment_id):
+                    payment_info = payment_info_resp["response"]
+                    company_id = company_doc.id
+                    mp_access_token = token
+                    print(f"[Webhook] Pagamento {payment_id} encontrado para empresa {company_id}")
+                    break
+            except Exception as e:
+                print(f"[Webhook] Falha ao consultar payment_id={payment_id} para empresa={company_doc.id}: {e}")
+        if not payment_info:
+            print(f"[Webhook] payment_id {payment_id} não encontrado em nenhuma empresa.")
+            return jsonify({"error": "Pagamento não encontrado"}), 404
     except Exception as e:
-        print(f"ERRO no webhook do Mercado Pago: {e}")
+        print(f"[Webhook] ERRO ao buscar empresas para webhook: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    # 3. Extrai o external_reference (sale_id) e status do pagamento
+    external_reference = payment_info.get("external_reference")
+    payment_status = payment_info.get("status")
+
+    if not external_reference:
+        print(f"[Webhook] ERRO: external_reference (sale_id) não encontrado no pagamento {payment_id}")
+        return jsonify({"error": "ID da venda não encontrado no pagamento do Mercado Pago"}), 400
+
+    print(f"[Webhook] Status do pagamento {payment_id}: {payment_status}, external_reference (sale_id): {external_reference}")
+
+    # 4. Atualiza o status da venda no Firestore
+    try:
+        sale_doc_ref = users_collection.document(company_id).collection('sales').document(external_reference)
+        sale_doc = sale_doc_ref.get()
+        if sale_doc.exists:
+            current_sale_data = sale_doc.to_dict()
+            if current_sale_data.get('status') != payment_status:
+                sale_doc_ref.update({
+                    'status': payment_status,
+                    'payment_id': payment_id,
+                    'date_updated': firestore.SERVER_TIMESTAMP
+                })
+                print(f"[Webhook] Venda {external_reference} da empresa {company_id} atualizada para '{payment_status}' via webhook.")
+            else:
+                print(f"[Webhook] Status da venda {external_reference} já é '{payment_status}'. Nenhuma atualização necessária.")
+            return jsonify({"message": "Webhook processado com sucesso"}), 200
+        else:
+            print(f"[Webhook] Venda {external_reference} não encontrada no Firestore para atualização.")
+            return jsonify({"error": "Venda não encontrada no Firestore"}), 404
+    except Exception as e:
+        print(f"[Webhook] ERRO ao atualizar venda no Firestore: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/pix/cancel', methods=['POST'])
