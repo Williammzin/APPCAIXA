@@ -449,20 +449,10 @@ const App = () => {
                 // 1. Gera um ID de venda único ANTES de qualquer chamada ao backend
                 saleId = doc(collection(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`)).id;
 
-                // 2. Cria o documento de venda no Firestore com status 'pending'
-                // Isso garante que o documento exista para ser atualizado pelo webhook
-                const pixSaleData = {
-                    ...baseSaleData,
-                    status: 'pending', // Status inicial para Pix
-                    payment_id: null, // Será preenchido após a resposta do MP
-                    sale_id_frontend: saleId // Salva o ID gerado no frontend
-                };
-                await setDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId), pixSaleData);
-                showMessage("Iniciando pagamento Pix. Aguardando QR Code...", "info");
-
-                // Obtém o ID Token do usuário Firebase logado
+                // 2. Obtém o ID Token do usuário Firebase logado
                 const idToken = await firebaseAuth.currentUser.getIdToken();
 
+                // 3. Gera o QR Code Pix via backend ANTES de criar o documento no Firestore
                 const response = await fetch(`${FLASK_BACKEND_URL}/pix/generate`, {
                     method: 'POST',
                     headers: {
@@ -487,20 +477,19 @@ const App = () => {
                     setPixQrCodeData(data);
                     showMessage("QR Code Pix gerado com sucesso! Aguardando pagamento...", "success");
 
-                    // 3. Atualiza o documento de venda no Firestore com o payment_id do Mercado Pago
-                    // Isso é crucial para o webhook encontrar e atualizar
-                    await updateDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId), {
-                        payment_id: data.payment_id // Salva o ID de pagamento do Mercado Pago
-                    });
+                    // 4. Cria o documento de venda no Firestore com status 'pending' e payment_id
+                    const pixSaleData = {
+                        ...baseSaleData,
+                        status: 'pending', // Status inicial para Pix
+                        payment_id: data.payment_id, // Salva o ID de pagamento do Mercado Pago
+                        sale_id_frontend: saleId // Salva o ID gerado no frontend
+                    };
+                    await setDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId), pixSaleData);
 
                     // Não limpa o carrinho aqui, pois a venda ainda está pendente.
                     // O carrinho será limpo quando o webhook confirmar o pagamento.
 
                 } else {
-                    // Se a geração do Pix falhar, remove a venda pendente criada
-                    if (saleId) {
-                        await deleteDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId));
-                    }
                     showMessage(`Erro ao gerar Pix: ${data.error || 'Erro desconhecido'}`, "error");
                 }
             } else {
@@ -527,14 +516,6 @@ const App = () => {
         } catch (e) {
             console.error("Erro ao finalizar venda ou gerar Pix:", e);
             showMessage("Erro ao finalizar venda ou gerar Pix.", "error");
-            // Se a venda foi criada mas o Pix falhou, tenta removê-la
-            if (saleId && paymentMethod === 'Pix') {
-                try {
-                    await deleteDoc(doc(firestoreDb, `artifacts/${appId}/users/${currentUser.username}/sales`, saleId));
-                } catch (deleteError) {
-                    console.error("Erro ao remover venda pendente após falha na geração do Pix:", deleteError);
-                }
-            }
         } finally {
             setIsLoadingPix(false);
         }
