@@ -159,6 +159,8 @@ const App = () => {
 
     // Novo estado para controlar status do Pix da venda atual
     const [pixStatus, setPixStatus] = useState(null);
+    // Novo estado para guardar unsubscribe do listener Pix
+    const pixListenerRef = useRef(null);
 
     // Função para exibir mensagens na interface
     const showMessage = (msg, type = 'success') => {
@@ -1106,20 +1108,26 @@ const App = () => {
 
     // Efeito para escutar atualizações do status Pix da venda pendente
     useEffect(() => {
+        // Limpa listener anterior se houver
+        if (pixListenerRef.current) {
+            pixListenerRef.current();
+            pixListenerRef.current = null;
+        }
+
+        // Só cria listener se houver Pix pendente
         if (
             firestoreDb &&
             currentUser &&
             pixQrCodeData &&
-            pixQrCodeData.sale_id_frontend // O sale_id gerado no frontend
+            pixQrCodeData.sale_id_frontend
         ) {
-            // Referência ao documento da venda Pix pendente
             const saleDocRef = doc(
                 firestoreDb,
                 `artifacts/${appId}/users/${currentUser.username}/sales`,
                 pixQrCodeData.sale_id_frontend
             );
-            // Listener para o documento da venda Pix
-            const unsubscribe = onSnapshot(saleDocRef, (docSnap) => {
+            // Cria listener e salva unsubscribe
+            pixListenerRef.current = onSnapshot(saleDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const saleData = docSnap.data();
                     if (saleData.status !== pixStatus) {
@@ -1127,7 +1135,6 @@ const App = () => {
                         // Notifica o usuário sobre a mudança de status
                         if (saleData.status === 'approved') {
                             showMessage('Pagamento Pix aprovado! Venda finalizada.', 'success');
-                            // Limpa carrinho e estados relacionados
                             setCart([]);
                             setPaymentAmount('');
                             setChange(0);
@@ -1135,18 +1142,34 @@ const App = () => {
                             setPaymentMethod('Dinheiro');
                             setPixQrCodeData(null);
                             setPixStatus(null);
+                            // Remove listener
+                            if (pixListenerRef.current) {
+                                pixListenerRef.current();
+                                pixListenerRef.current = null;
+                            }
                         } else if (saleData.status === 'cancelled') {
                             showMessage('Pagamento Pix cancelado.', 'error');
                             setPixQrCodeData(null);
                             setPixStatus(null);
+                            // Remove listener
+                            if (pixListenerRef.current) {
+                                pixListenerRef.current();
+                                pixListenerRef.current = null;
+                            }
                         } else if (saleData.status === 'pending') {
                             showMessage('Aguardando pagamento Pix...', 'info');
                         }
                     }
                 }
             });
-            return () => unsubscribe();
         }
+        // Limpa listener ao desmontar ou mudar dependências
+        return () => {
+            if (pixListenerRef.current) {
+                pixListenerRef.current();
+                pixListenerRef.current = null;
+            }
+        };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [firestoreDb, currentUser, pixQrCodeData]);
 
@@ -1546,6 +1569,7 @@ const App = () => {
                                 <button
                                     onClick={finalizeSale}
                                     className={`w-full ${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white text-xl font-bold py-4 rounded-xl transition-all duration-300 shadow-lg transform hover:scale-105`}
+                                    disabled={paymentMethod === 'Pix' && pixQrCodeData && pixStatus === 'pending'}
                                 >
                                     Finalizar Venda
                                 </button>
