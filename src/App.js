@@ -159,8 +159,8 @@ const App = () => {
 
     // Novo estado para controlar status do Pix da venda atual
     const [pixStatus, setPixStatus] = useState(null);
-    // Novo estado para guardar unsubscribe do listener Pix
-    const pixListenerRef = useRef(null);
+    // Novo estado para controlar se há Pix pendente (para desabilitar botão)
+    const [isPixPending, setIsPixPending] = useState(false);
 
     // Função para exibir mensagens na interface
     const showMessage = (msg, type = 'success') => {
@@ -408,6 +408,11 @@ const App = () => {
         }
         if (!firestoreDb || !currentUser || !firebaseAuth) {
             showMessage("Erro: Serviço de banco de dados ou autenticação não disponível.", "error");
+            return;
+        }
+        // Evita múltiplos Pix pendentes
+        if (paymentMethod === 'Pix' && isPixPending) {
+            showMessage("Já existe um pagamento Pix pendente. Aguarde a confirmação antes de gerar outro.", "error");
             return;
         }
 
@@ -1108,31 +1113,24 @@ const App = () => {
 
     // Efeito para escutar atualizações do status Pix da venda pendente
     useEffect(() => {
-        // Limpa listener anterior se houver
-        if (pixListenerRef.current) {
-            pixListenerRef.current();
-            pixListenerRef.current = null;
-        }
-
-        // Só cria listener se houver Pix pendente
+        let unsubscribe = null;
         if (
             firestoreDb &&
             currentUser &&
             pixQrCodeData &&
             pixQrCodeData.sale_id_frontend
         ) {
+            setIsPixPending(true);
             const saleDocRef = doc(
                 firestoreDb,
                 `artifacts/${appId}/users/${currentUser.username}/sales`,
                 pixQrCodeData.sale_id_frontend
             );
-            // Cria listener e salva unsubscribe
-            pixListenerRef.current = onSnapshot(saleDocRef, (docSnap) => {
+            unsubscribe = onSnapshot(saleDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const saleData = docSnap.data();
                     if (saleData.status !== pixStatus) {
                         setPixStatus(saleData.status);
-                        // Notifica o usuário sobre a mudança de status
                         if (saleData.status === 'approved') {
                             showMessage('Pagamento Pix aprovado! Venda finalizada.', 'success');
                             setCart([]);
@@ -1142,33 +1140,24 @@ const App = () => {
                             setPaymentMethod('Dinheiro');
                             setPixQrCodeData(null);
                             setPixStatus(null);
-                            // Remove listener
-                            if (pixListenerRef.current) {
-                                pixListenerRef.current();
-                                pixListenerRef.current = null;
-                            }
+                            setIsPixPending(false);
                         } else if (saleData.status === 'cancelled') {
                             showMessage('Pagamento Pix cancelado.', 'error');
                             setPixQrCodeData(null);
                             setPixStatus(null);
-                            // Remove listener
-                            if (pixListenerRef.current) {
-                                pixListenerRef.current();
-                                pixListenerRef.current = null;
-                            }
+                            setIsPixPending(false);
                         } else if (saleData.status === 'pending') {
                             showMessage('Aguardando pagamento Pix...', 'info');
                         }
                     }
                 }
             });
+        } else {
+            setPixStatus(null);
+            setIsPixPending(false);
         }
-        // Limpa listener ao desmontar ou mudar dependências
         return () => {
-            if (pixListenerRef.current) {
-                pixListenerRef.current();
-                pixListenerRef.current = null;
-            }
+            if (unsubscribe) unsubscribe();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [firestoreDb, currentUser, pixQrCodeData]);
@@ -1484,7 +1473,6 @@ const App = () => {
                                         <p className="text-sm">
                                             Para gerar o QR Code Pix, o aplicativo fará uma requisição ao seu backend Flask.
                                         </p>
-                                        {/* Mostra status do Pix se houver */}
                                         {pixStatus && (
                                             <div className="my-2">
                                                 {pixStatus === 'pending' && (
@@ -1569,9 +1557,9 @@ const App = () => {
                                 <button
                                     onClick={finalizeSale}
                                     className={`w-full ${getThemeClasses('primary_button_bg')} ${getThemeClasses('primary_button_hover_bg')} text-white text-xl font-bold py-4 rounded-xl transition-all duration-300 shadow-lg transform hover:scale-105`}
-                                    disabled={paymentMethod === 'Pix' && pixQrCodeData && pixStatus === 'pending'}
+                                    disabled={paymentMethod === 'Pix' && isPixPending}
                                 >
-                                    Finalizar Venda
+                                    {paymentMethod === 'Pix' && isPixPending ? "Aguardando pagamento Pix..." : "Finalizar Venda"}
                                 </button>
                             </div>
                         </div>
