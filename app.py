@@ -588,17 +588,16 @@ def mercadopago_webhook():
     # Mercado Pago pode enviar notificações via GET ou POST
     # https://www.mercadopago.com.br/developers/pt/docs/notifications/webhooks/handling-notifications
 
-    # 1. Extrai o payment_id e topic/type da notificação
-    payment_id = None
-    topic = None
+    # 1. SEMPRE tente pegar payment_id e topic da query string primeiro
+    payment_id = request.args.get('id') or request.args.get('data.id')
+    topic = request.args.get('topic') or request.args.get('type')
 
-    if request.method == 'GET':
-        payment_id = request.args.get('id')
-        topic = request.args.get('topic')
-    elif request.method == 'POST':
+    # Se não veio na query, tenta pegar do corpo do POST
+    if not payment_id or not topic:
         body = request.get_json(silent=True) or {}
-        payment_id = body.get('data', {}).get('id') or body.get('id')
-        topic = body.get('type') or body.get('topic')
+        # Mercado Pago pode mandar como data.id ou id
+        payment_id = payment_id or body.get('data', {}).get('id') or body.get('id')
+        topic = topic or body.get('type') or body.get('topic')
 
     if not payment_id or topic != 'payment':
         print(f"[Webhook] Notificação inválida: payment_id={payment_id}, topic={topic}")
@@ -1024,4 +1023,5 @@ def delete_company_user():
 
 # --- Execução do Aplicativo ---
 if __name__ == '__main__':
+    app.run(debug=True, port=5000)
     app.run(debug=True, port=5000)
