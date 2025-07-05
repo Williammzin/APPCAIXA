@@ -1114,42 +1114,46 @@ const App = () => {
     // Efeito para escutar atualizações do status Pix da venda pendente
     useEffect(() => {
         let unsubscribe = null;
+        // Busca a venda Pix pendente mais recente do usuário
         if (
             firestoreDb &&
             currentUser &&
-            pixQrCodeData &&
-            pixQrCodeData.sale_id_frontend
+            (activeTab === 'caixa') &&
+            (paymentMethod === 'Pix' || pixQrCodeData) // só escuta se for Pix ou se já tem Pix pendente
         ) {
-            setIsPixPending(true);
-            const saleDocRef = doc(
+            const salesCollectionRef = collection(
                 firestoreDb,
-                `artifacts/${appId}/users/${currentUser.username}/sales`,
-                pixQrCodeData.sale_id_frontend
+                `artifacts/${appId}/users/${currentUser.username}/sales`
             );
-            unsubscribe = onSnapshot(saleDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const saleData = docSnap.data();
-                    if (saleData.status !== pixStatus) {
-                        setPixStatus(saleData.status);
-                        if (saleData.status === 'approved') {
-                            showMessage('Pagamento Pix aprovado! Venda finalizada.', 'success');
-                            setCart([]);
-                            setPaymentAmount('');
-                            setChange(0);
-                            setDifference(0);
-                            setPaymentMethod('Dinheiro');
-                            setPixQrCodeData(null);
-                            setPixStatus(null);
-                            setIsPixPending(false);
-                        } else if (saleData.status === 'cancelled') {
-                            showMessage('Pagamento Pix cancelado.', 'error');
-                            setPixQrCodeData(null);
-                            setPixStatus(null);
-                            setIsPixPending(false);
-                        } else if (saleData.status === 'pending') {
-                            showMessage('Aguardando pagamento Pix...', 'info');
-                        }
+            // Busca a venda Pix pendente mais recente
+            unsubscribe = onSnapshot(salesCollectionRef, (snapshot) => {
+                const pendingPixSales = snapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() }))
+                    .filter(sale => sale.paymentMethod === 'Pix' && sale.status === 'pending');
+                if (pendingPixSales.length > 0) {
+                    setIsPixPending(true);
+                    const pixSale = pendingPixSales[0]; // pega a mais recente
+                    setPixStatus(pixSale.status);
+                    // Se aprovado/cancelado, mostra mensagem e limpa estados
+                    if (pixSale.status === 'approved') {
+                        showMessage('Pagamento Pix aprovado! Venda finalizada.', 'success');
+                        setCart([]);
+                        setPaymentAmount('');
+                        setChange(0);
+                        setDifference(0);
+                        setPaymentMethod('Dinheiro');
+                        setPixQrCodeData(null);
+                        setPixStatus(null);
+                        setIsPixPending(false);
+                    } else if (pixSale.status === 'cancelled') {
+                        showMessage('Pagamento Pix cancelado.', 'error');
+                        setPixQrCodeData(null);
+                        setPixStatus(null);
+                        setIsPixPending(false);
                     }
+                } else {
+                    setPixStatus(null);
+                    setIsPixPending(false);
                 }
             });
         } else {
@@ -1160,7 +1164,7 @@ const App = () => {
             if (unsubscribe) unsubscribe();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [firestoreDb, currentUser, pixQrCodeData]);
+    }, [firestoreDb, currentUser, activeTab, paymentMethod, pixQrCodeData, appId]);
 
     // Renderiza a tela de login se o usuário não estiver logado
     if (!isLoggedIn) {
